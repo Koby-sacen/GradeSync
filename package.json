@@ -1,3 +1,4 @@
+
 {
   "name": "gradesync",
   "version": "0.1.0",
@@ -34,5 +35,10 @@
     "eslint-config-next": "16.3.6",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "jwks-rsa": {
+      "jose": "5.10.0"
+    }
   }
 }
