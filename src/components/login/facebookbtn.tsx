@@ -61,13 +61,19 @@ export default function FacebookBtn() {
           }, 1000)
         }
       })
-      .catch((error) => {
-        console.error('Facebook redirect sign-in error:', error)
+      .catch((error: unknown) => {
+        const err = error as { code?: string; message?: string }
+        console.error('Facebook redirect sign-in error:', err)
 
         const failedAudio = new Audio('/sounds/failed.mp3')
-        failedAudio.play().catch((err) => console.warn('Audio playback prevented:', err))
+        failedAudio.play().catch((audioErr) => console.warn('Audio playback prevented:', audioErr))
 
-        toast.error('Failed to sign in with Facebook. Please try again.')
+        // Specifically catch missing session state / storage partitioning errors
+        if (err.code === 'auth/missing-initial-state' || err.code === 'auth/invalid-credential') {
+          toast.error('Browser storage was blocked or cleared. Please open this site in Chrome or Safari (not inside the Facebook/Messenger app).')
+        } else {
+          toast.error(err.message || 'Failed to sign in with Facebook. Please try again.')
+        }
       })
 
     return () => {
@@ -78,8 +84,6 @@ export default function FacebookBtn() {
   const handleFacebookSignIn = async () => {
     try {
       const provider = new FacebookAuthProvider()
-      
-      // Request standard profile and email scopes without forcing re-auth
       provider.addScope('email')
       provider.addScope('public_profile')
 
@@ -92,7 +96,7 @@ export default function FacebookBtn() {
         // Use redirect on mobile
         await signInWithRedirect(auth, provider)
       } else {
-        // Use popup on desktop to keep the session active and prevent cross-site token loss
+        // Use popup on desktop
         try {
           const result = await signInWithPopup(auth, provider)
           const user = result.user
@@ -134,23 +138,22 @@ export default function FacebookBtn() {
             router.push(redirectPath)
           }, 1000)
         } catch (popupError: unknown) {
-          const error = popupError as { code?: string; message?: string }
-          console.error('Popup sign-in error:', error)
-
-          if (error.code === 'auth/popup-blocked') {
-            toast.error('Popup was blocked by your browser. Please allow popups for this site to sign in with Facebook.')
-          } else if (error.code !== 'auth/cancelled-popup-request') {
-            toast.error(error.message || 'Failed to sign in with Facebook.')
+          const err = popupError as { code?: string; message?: string }
+          if (err.code === 'auth/popup-blocked') {
+            toast.error('Popup blocked. Please allow popups for this site.')
+          } else if (err.code !== 'auth/cancelled-popup-request') {
+            throw err
           }
         }
       }
-    } catch (error) {
-      console.error('Facebook sign-in error:', error)
+    } catch (error: unknown) {
+      const err = error as { code?: string; message?: string }
+      console.error('Facebook sign-in error:', err)
 
       const failedAudio = new Audio('/sounds/failed.mp3')
-      failedAudio.play().catch((err) => console.warn('Audio playback prevented:', err))
+      failedAudio.play().catch((audioErr) => console.warn('Audio playback prevented:', audioErr))
 
-      toast.error('Failed to sign in with Facebook. Please try again.')
+      toast.error(err.message || 'Failed to sign in with Facebook. Please try again.')
     }
   }
 
