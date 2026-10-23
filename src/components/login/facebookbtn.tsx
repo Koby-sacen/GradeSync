@@ -19,41 +19,52 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { auth, db } from '@/lib/firebase'
 
+// Detect Facebook and Messenger in-app browsers
 function isInAppBrowser(): boolean {
-  if (typeof navigator === 'undefined') return false
+  if (typeof navigator === 'undefined') {
+    return false
+  }
 
   return /FBAN|FBAV|FB_IAB|FB4A|FBIOS|Messenger|Orca/i.test(
     navigator.userAgent
   )
 }
 
+// Detect mobile devices
 function isMobileDevice(): boolean {
-  if (typeof navigator === 'undefined') return false
+  if (typeof navigator === 'undefined') {
+    return false
+  }
 
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
     navigator.userAgent
   )
 }
 
-function isMobileChrome(): boolean {
-  if (typeof navigator === 'undefined') return false
+// Detect Android Chrome for diagnostics
+function isAndroidChrome(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
 
   const ua = navigator.userAgent
 
-  const chrome =
-    (/Android/i.test(ua) && /Chrome/i.test(ua)) ||
-    (/iPhone|iPad|iPod/i.test(ua) && /CriOS/i.test(ua))
-
-  const otherBrowser =
-    /EdgA|EdgiOS|OPR|OPT|SamsungBrowser|UCBrowser/i.test(ua)
-
-  return chrome && !otherBrowser && !isInAppBrowser()
+  return (
+    /Android/i.test(ua) &&
+    /Chrome/i.test(ua) &&
+    !/EdgA|OPR|OPT|SamsungBrowser|UCBrowser/i.test(ua) &&
+    !isInAppBrowser()
+  )
 }
 
+// FIX:
+// All mobile browsers use Facebook redirect authentication.
+// Desktop browsers continue using popup authentication.
 function shouldUseRedirect(): boolean {
-  return isMobileDevice() && !isMobileChrome()
+  return isMobileDevice()
 }
 
+// Preserve success and failure sounds
 function playSound(type: 'success' | 'failed') {
   try {
     const audio = new Audio(`/sounds/${type}.mp3`)
@@ -66,6 +77,7 @@ function playSound(type: 'success' | 'failed') {
   }
 }
 
+// Normalize Firebase errors
 function getError(error: unknown): {
   code?: string
   message?: string
@@ -77,7 +89,9 @@ function getError(error: unknown): {
     }
   }
 
-  return { message: String(error) }
+  return {
+    message: String(error),
+  }
 }
 
 export default function FacebookBtn() {
@@ -89,9 +103,12 @@ export default function FacebookBtn() {
   const redirectProcessingRef = useRef(false)
   const completedUserRef = useRef<string | null>(null)
 
+  // Preserve existing Firestore account handling
   const handleAuthenticatedUser = useCallback(
     async (user: User) => {
-      if (completedUserRef.current === user.uid) return
+      if (completedUserRef.current === user.uid) {
+        return
+      }
 
       completedUserRef.current = user.uid
 
@@ -120,6 +137,10 @@ export default function FacebookBtn() {
           }
         }
 
+        console.info(
+          '[Facebook Auth] Authentication successful'
+        )
+
         playSound('success')
 
         toast.success(
@@ -145,6 +166,7 @@ export default function FacebookBtn() {
     [router]
   )
 
+  // Handle Facebook redirect results on mobile
   useEffect(() => {
     let active = true
 
@@ -164,17 +186,34 @@ export default function FacebookBtn() {
 
     const processRedirect = async () => {
       try {
+        console.info(
+          '[Facebook Auth] Checking redirect result'
+        )
+
         const result = await getRedirectResult(auth)
 
-        if (!active || !result) return
+        if (!active || !result) {
+          return
+        }
+
+        // Prevent the Facebook button from processing
+        // a Google redirect result.
+        const isFacebookResult =
+          result.providerId === 'facebook.com'
+
+        if (!isFacebookResult) {
+          return
+        }
 
         console.info(
-          '[Facebook Auth] Redirect authentication succeeded'
+          '[Facebook Auth] Facebook redirect completed'
         )
 
         await handleAuthenticatedUser(result.user)
       } catch (error: unknown) {
-        if (!active) return
+        if (!active) {
+          return
+        }
 
         const err = getError(error)
 
@@ -186,10 +225,20 @@ export default function FacebookBtn() {
 
         playSound('failed')
 
-        toast.error(
-          err.message ||
-          'Facebook redirect authentication failed.'
-        )
+        if (err.code === 'auth/missing-initial-state') {
+          toast.error(
+            'Firebase could not restore the Facebook login session. The authentication helper may require same-origin configuration.'
+          )
+        } else if (err.code === 'auth/unauthorized-domain') {
+          toast.error(
+            'This website is not authorized in Firebase Authentication.'
+          )
+        } else {
+          toast.error(
+            err.message ||
+            'Facebook redirect authentication failed.'
+          )
+        }
       } finally {
         redirectProcessingRef.current = false
       }
@@ -202,44 +251,63 @@ export default function FacebookBtn() {
     }
   }, [handleAuthenticatedUser])
 
+  // Facebook sign-in
   const handleFacebookSignIn = async () => {
-    if (signingInRef.current) return
+    if (signingInRef.current) {
+      return
+    }
 
     signingInRef.current = true
     setLoading(true)
 
+    let redirectStarted = false
+
     try {
       const provider = new FacebookAuthProvider()
 
+      // Request email permission.
+      // public_profile is included by default.
       provider.addScope('email')
 
       const redirect = shouldUseRedirect()
 
-      console.info('[Facebook Auth] Login method:', {
+      console.info('[Facebook Auth] Starting login:', {
         method: redirect ? 'redirect' : 'popup',
         mobile: isMobileDevice(),
-        mobileChrome: isMobileChrome(),
+        androidChrome: isAndroidChrome(),
         inAppBrowser: isInAppBrowser(),
+        authDomain: auth.app.options.authDomain,
       })
 
       if (redirect) {
-        // Preserve the working Messenger/Facebook login flow.
+        // FIX:
+        // Android Chrome, Messenger and other mobile
+        // browsers use redirect authentication.
+        console.info(
+          '[Facebook Auth] Starting mobile redirect'
+        )
+
         await signInWithRedirect(auth, provider)
+
+        redirectStarted = true
         return
       }
 
-      // Match Google's popup-based authentication on Chrome.
+      // Preserve working desktop Chrome popup login.
+      console.info(
+        '[Facebook Auth] Starting desktop popup'
+      )
+
       const result = await signInWithPopup(auth, provider)
 
       await handleAuthenticatedUser(result.user)
     } catch (error: unknown) {
       const err = getError(error)
 
-      console.error(
-        '[Facebook Auth] Login failed:',
-        err.code,
-        err.message
-      )
+      console.error('[Facebook Auth] Login failed:', {
+        code: err.code,
+        message: err.message,
+      })
 
       if (err.code === 'auth/cancelled-popup-request') {
         return
@@ -285,8 +353,10 @@ export default function FacebookBtn() {
         )
       }
     } finally {
-      signingInRef.current = false
-      setLoading(false)
+      if (!redirectStarted) {
+        signingInRef.current = false
+        setLoading(false)
+      }
     }
   }
 
