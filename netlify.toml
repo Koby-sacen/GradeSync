@@ -1,0 +1,12 @@
+
+[[redirects]]
+  from = "/__/auth/*"
+  to = "https://gradesyncssu.firebaseapp.com/__/auth/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/__/firebase/init.json"
+  to = "https://gradesyncssu.firebaseapp.com/__/firebase/init.json"
+  status = 200
+  force = true
