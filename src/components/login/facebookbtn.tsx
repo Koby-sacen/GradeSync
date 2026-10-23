@@ -1,7 +1,7 @@
 
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   FacebookAuthProvider,
   signInWithPopup,
@@ -19,7 +19,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { auth, db } from '@/lib/firebase'
 
-function isFacebookOrMessengerBrowser(): boolean {
+function isInAppBrowser(): boolean {
   if (typeof navigator === 'undefined') return false
 
   return /FBAN|FBAV|FB_IAB|FB4A|FBIOS|Messenger|Orca/i.test(
@@ -47,11 +47,11 @@ function isMobileChrome(): boolean {
   const otherBrowser =
     /EdgA|EdgiOS|OPR|OPT|SamsungBrowser|UCBrowser/i.test(ua)
 
-  return (
-    chrome &&
-    !otherBrowser &&
-    !isFacebookOrMessengerBrowser()
-  )
+  return chrome && !otherBrowser && !isInAppBrowser()
+}
+
+function shouldUseRedirect(): boolean {
+  return isMobileDevice() && !isMobileChrome()
 }
 
 function playSound(type: 'success' | 'failed') {
@@ -66,7 +66,7 @@ function playSound(type: 'success' | 'failed') {
   }
 }
 
-function getAuthError(error: unknown): {
+function getError(error: unknown): {
   code?: string
   message?: string
 } {
@@ -77,9 +77,7 @@ function getAuthError(error: unknown): {
     }
   }
 
-  return {
-    message: String(error),
-  }
+  return { message: String(error) }
 }
 
 export default function FacebookBtn() {
@@ -88,7 +86,7 @@ export default function FacebookBtn() {
   const [loading, setLoading] = useState(false)
 
   const signingInRef = useRef(false)
-  const processingRedirectRef = useRef(false)
+  const redirectProcessingRef = useRef(false)
   const completedUserRef = useRef<string | null>(null)
 
   const handleAuthenticatedUser = useCallback(
@@ -122,10 +120,6 @@ export default function FacebookBtn() {
           }
         }
 
-        console.info(
-          '[Facebook Auth] Authentication and user setup successful'
-        )
-
         playSound('success')
 
         toast.success(
@@ -154,22 +148,19 @@ export default function FacebookBtn() {
   useEffect(() => {
     let active = true
 
-    // Chrome uses popup authentication in this test.
-    // Preserve redirect result handling for Messenger
-    // and other mobile browsers using redirects.
-    if (isMobileChrome()) {
+    if (!shouldUseRedirect()) {
       return () => {
         active = false
       }
     }
 
-    if (processingRedirectRef.current) {
+    if (redirectProcessingRef.current) {
       return () => {
         active = false
       }
     }
 
-    processingRedirectRef.current = true
+    redirectProcessingRef.current = true
 
     const processRedirect = async () => {
       try {
@@ -178,17 +169,17 @@ export default function FacebookBtn() {
         if (!active || !result) return
 
         console.info(
-          '[Facebook Auth] Redirect result received'
+          '[Facebook Auth] Redirect authentication succeeded'
         )
 
         await handleAuthenticatedUser(result.user)
       } catch (error: unknown) {
         if (!active) return
 
-        const err = getAuthError(error)
+        const err = getError(error)
 
         console.error(
-          '[Facebook Auth] Redirect authentication failed:',
+          '[Facebook Auth] Redirect failed:',
           err.code,
           err.message
         )
@@ -200,7 +191,7 @@ export default function FacebookBtn() {
           'Facebook redirect authentication failed.'
         )
       } finally {
-        processingRedirectRef.current = false
+        redirectProcessingRef.current = false
       }
     }
 
@@ -217,59 +208,38 @@ export default function FacebookBtn() {
     signingInRef.current = true
     setLoading(true)
 
-    let redirectStarted = false
-
     try {
       const provider = new FacebookAuthProvider()
 
-      // Email is the only additional permission needed.
-      // public_profile is already a default permission.
       provider.addScope('email')
 
-      const mobile = isMobileDevice()
-      const mobileChrome = isMobileChrome()
-      const inAppBrowser = isFacebookOrMessengerBrowser()
+      const redirect = shouldUseRedirect()
 
-      console.info('[Facebook Auth] Starting login', {
-        mobile,
-        mobileChrome,
-        inAppBrowser,
-        method: mobile && !mobileChrome
-          ? 'redirect'
-          : 'popup',
-        firebaseProject: auth.app.options.projectId,
-        authDomain: auth.app.options.authDomain,
+      console.info('[Facebook Auth] Login method:', {
+        method: redirect ? 'redirect' : 'popup',
+        mobile: isMobileDevice(),
+        mobileChrome: isMobileChrome(),
+        inAppBrowser: isInAppBrowser(),
       })
 
-      // Preserve the working Messenger flow.
-      if (mobile && !mobileChrome) {
-        redirectStarted = true
-
+      if (redirect) {
+        // Preserve the working Messenger/Facebook login flow.
         await signInWithRedirect(auth, provider)
         return
       }
 
-      // Diagnostic test:
-      // Use a minimal Facebook popup flow on Chrome,
-      // matching the method used by Google login.
-      console.info(
-        '[Facebook Auth] Opening Firebase popup'
-      )
-
+      // Match Google's popup-based authentication on Chrome.
       const result = await signInWithPopup(auth, provider)
-
-      console.info(
-        '[Facebook Auth] Popup authentication succeeded'
-      )
 
       await handleAuthenticatedUser(result.user)
     } catch (error: unknown) {
-      const err = getAuthError(error)
+      const err = getError(error)
 
-      console.error('[Facebook Auth] Login failed', {
-        code: err.code,
-        message: err.message,
-      })
+      console.error(
+        '[Facebook Auth] Login failed:',
+        err.code,
+        err.message
+      )
 
       if (err.code === 'auth/cancelled-popup-request') {
         return
@@ -306,7 +276,7 @@ export default function FacebookBtn() {
         )
       } else if (err.code === 'auth/missing-initial-state') {
         toast.error(
-          'Firebase could not recover the Facebook authentication session.'
+          'Firebase could not restore the Facebook authentication session.'
         )
       } else {
         toast.error(
@@ -315,10 +285,8 @@ export default function FacebookBtn() {
         )
       }
     } finally {
-      if (!redirectStarted) {
-        signingInRef.current = false
-        setLoading(false)
-      }
+      signingInRef.current = false
+      setLoading(false)
     }
   }
 
