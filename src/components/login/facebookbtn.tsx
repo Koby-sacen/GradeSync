@@ -1,7 +1,7 @@
 
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   FacebookAuthProvider,
   signInWithPopup,
@@ -19,249 +19,257 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { auth, db } from '@/lib/firebase'
 
+function isFacebookOrMessengerBrowser(): boolean {
+  if (typeof navigator === 'undefined') return false
+
+  return /FBAN|FBAV|FB_IAB|FB4A|FBIOS|Messenger|Orca/i.test(
+    navigator.userAgent
+  )
+}
+
+function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false
+
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  )
+}
+
+function isMobileChrome(): boolean {
+  if (typeof navigator === 'undefined') return false
+
+  const ua = navigator.userAgent
+
+  const chrome =
+    (/Android/i.test(ua) && /Chrome/i.test(ua)) ||
+    (/iPhone|iPad|iPod/i.test(ua) && /CriOS/i.test(ua))
+
+  const otherBrowser =
+    /EdgA|EdgiOS|OPR|OPT|SamsungBrowser|UCBrowser/i.test(ua)
+
+  return (
+    chrome &&
+    !otherBrowser &&
+    !isFacebookOrMessengerBrowser()
+  )
+}
+
+function playSound(type: 'success' | 'failed') {
+  try {
+    const audio = new Audio(`/sounds/${type}.mp3`)
+
+    audio.play().catch((error) => {
+      console.warn('Audio playback prevented:', error)
+    })
+  } catch (error) {
+    console.warn('Audio playback unavailable:', error)
+  }
+}
+
+function getAuthError(error: unknown): {
+  code?: string
+  message?: string
+} {
+  if (typeof error === 'object' && error !== null) {
+    return error as {
+      code?: string
+      message?: string
+    }
+  }
+
+  return {
+    message: String(error),
+  }
+}
+
 export default function FacebookBtn() {
   const router = useRouter()
 
   const [loading, setLoading] = useState(false)
+
   const signingInRef = useRef(false)
   const processingRedirectRef = useRef(false)
+  const completedUserRef = useRef<string | null>(null)
 
-  // Play original success and failure sounds
-  const playSound = (type: 'success' | 'failed') => {
-    try {
-      const audio = new Audio(`/sounds/${type}.mp3`)
+  const handleAuthenticatedUser = useCallback(
+    async (user: User) => {
+      if (completedUserRef.current === user.uid) return
 
-      audio.play().catch((error) => {
-        console.warn('Audio playback prevented:', error)
-      })
-    } catch (error) {
-      console.warn('Audio playback unavailable:', error)
-    }
-  }
+      completedUserRef.current = user.uid
 
-  // Detect Facebook and Messenger in-app browsers
-  const isFacebookOrMessengerBrowser = () => {
-    if (typeof navigator === 'undefined') {
-      return false
-    }
+      try {
+        const userRef = doc(db, 'users', user.uid)
+        const userSnap = await getDoc(userRef)
 
-    const userAgent = navigator.userAgent
+        let userRole = 'student'
 
-    return /FBAN|FBAV|FB_IAB|FB4A|FBIOS|Messenger|Orca/i.test(
-      userAgent
-    )
-  }
+        if (!userSnap.exists()) {
+          await setDoc(userRef, {
+            uid: user.uid,
+            fullName: user.displayName || 'Facebook User',
+            email: user.email || '',
+            role: 'student',
+            isInstructorVerified: false,
+            verificationStatus: 'none',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          })
+        } else {
+          const userData = userSnap.data()
 
-  // Detect mobile devices
-  const isMobileDevice = () => {
-    if (typeof navigator === 'undefined') {
-      return false
-    }
+          if (userData?.role) {
+            userRole = userData.role
+          }
+        }
 
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-      navigator.userAgent
-    )
-  }
+        console.info(
+          '[Facebook Auth] Authentication and user setup successful'
+        )
 
-  // Detect mobile Chrome
-  const isMobileChrome = () => {
-    if (typeof navigator === 'undefined') {
-      return false
-    }
+        playSound('success')
 
-    const userAgent = navigator.userAgent
+        toast.success(
+          `Welcome back, ${user.displayName || 'User'}!`,
+          {
+            description: 'Redirecting to dashboard...',
+          }
+        )
 
-    const isAndroidChrome =
-      /Android/i.test(userAgent) &&
-      /Chrome|CriOS/i.test(userAgent)
+        const redirectPath =
+          userRole === 'instructor'
+            ? '/instructor/home'
+            : '/students/home'
 
-    const isIOSChrome =
-      /iPhone|iPad|iPod/i.test(userAgent) &&
-      /CriOS/i.test(userAgent)
-
-    const isOtherBrowser =
-      /EdgA|EdgiOS|OPR|OPT|SamsungBrowser|UCBrowser/i.test(
-        userAgent
-      )
-
-    return (
-      (isAndroidChrome || isIOSChrome) &&
-      !isOtherBrowser &&
-      !isFacebookOrMessengerBrowser()
-    )
-  }
-
-  // Shared successful authentication handler
-  // Preserves your original Firestore behavior
-  const handleAuthenticatedUser = async (user: User) => {
-    const userRef = doc(db, 'users', user.uid)
-    const userSnap = await getDoc(userRef)
-
-    let userRole = 'student'
-
-    if (!userSnap.exists()) {
-      const newUserDoc = {
-        uid: user.uid,
-        fullName: user.displayName || 'Facebook User',
-        email: user.email || '',
-        role: 'student',
-        isInstructorVerified: false,
-        verificationStatus: 'none',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        setTimeout(() => {
+          router.push(redirectPath)
+        }, 1000)
+      } catch (error) {
+        completedUserRef.current = null
+        throw error
       }
+    },
+    [router]
+  )
 
-      await setDoc(userRef, newUserDoc)
-    } else {
-      const userData = userSnap.data()
-
-      if (userData?.role) {
-        userRole = userData.role
-      }
-    }
-
-    playSound('success')
-
-    toast.success(
-      `Welcome back, ${user.displayName || 'User'}!`,
-      {
-        description: 'Redirecting to dashboard...',
-      }
-    )
-
-    const redirectPath =
-      userRole === 'instructor'
-        ? '/instructor/home'
-        : '/students/home'
-
-    setTimeout(() => {
-      router.push(redirectPath)
-    }, 1000)
-  }
-
-  // Preserve redirect result handling for
-  // Facebook and Messenger in-app browsers
   useEffect(() => {
-    let isMounted = true
+    let active = true
 
-    // Only process redirect results in browsers
-    // that still use the original redirect flow.
+    // Chrome uses popup authentication in this test.
+    // Preserve redirect result handling for Messenger
+    // and other mobile browsers using redirects.
     if (isMobileChrome()) {
       return () => {
-        isMounted = false
+        active = false
       }
     }
 
     if (processingRedirectRef.current) {
       return () => {
-        isMounted = false
+        active = false
       }
     }
 
     processingRedirectRef.current = true
 
-    getRedirectResult(auth)
-      .then(async (result) => {
-        if (!result || !isMounted) {
-          return
-        }
+    const processRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth)
+
+        if (!active || !result) return
+
+        console.info(
+          '[Facebook Auth] Redirect result received'
+        )
 
         await handleAuthenticatedUser(result.user)
-      })
-      .catch((error: unknown) => {
-        if (!isMounted) {
-          return
-        }
+      } catch (error: unknown) {
+        if (!active) return
 
-        const err = error as {
-          code?: string
-          message?: string
-        }
+        const err = getAuthError(error)
 
         console.error(
-          'Facebook redirect sign-in error:',
-          err
+          '[Facebook Auth] Redirect authentication failed:',
+          err.code,
+          err.message
         )
 
         playSound('failed')
 
-        if (
-          err.code === 'auth/missing-initial-state' ||
-          err.code === 'auth/invalid-credential'
-        ) {
-          toast.error(
-            'Facebook login session could not be restored. Please try signing in again.'
-          )
-        } else {
-          toast.error(
-            err.message ||
-            'Failed to sign in with Facebook. Please try again.'
-          )
-        }
-      })
-      .finally(() => {
+        toast.error(
+          err.message ||
+          'Facebook redirect authentication failed.'
+        )
+      } finally {
         processingRedirectRef.current = false
-      })
+      }
+    }
+
+    void processRedirect()
 
     return () => {
-      isMounted = false
+      active = false
     }
-    // Run redirect processing when the component mounts
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [handleAuthenticatedUser])
 
-  // Facebook sign-in
   const handleFacebookSignIn = async () => {
-    if (signingInRef.current) {
-      return
-    }
+    if (signingInRef.current) return
 
     signingInRef.current = true
     setLoading(true)
 
+    let redirectStarted = false
+
     try {
       const provider = new FacebookAuthProvider()
 
+      // Email is the only additional permission needed.
+      // public_profile is already a default permission.
       provider.addScope('email')
-      provider.addScope('public_profile')
 
       const mobile = isMobileDevice()
       const mobileChrome = isMobileChrome()
       const inAppBrowser = isFacebookOrMessengerBrowser()
 
-      console.log('Facebook authentication browser:', {
+      console.info('[Facebook Auth] Starting login', {
         mobile,
         mobileChrome,
         inAppBrowser,
+        method: mobile && !mobileChrome
+          ? 'redirect'
+          : 'popup',
+        firebaseProject: auth.app.options.projectId,
+        authDomain: auth.app.options.authDomain,
       })
 
-      // IMPORTANT:
-      // Preserve the original redirect authentication
-      // for Facebook and Messenger in-app browsers.
-      //
-      // Also preserve redirect for other mobile browsers
-      // except Chrome, matching your original behavior.
+      // Preserve the working Messenger flow.
       if (mobile && !mobileChrome) {
+        redirectStarted = true
+
         await signInWithRedirect(auth, provider)
         return
       }
 
-      // FIX:
-      // Mobile Chrome uses popup authentication.
-      // Desktop browsers continue using popup.
-      //
-      // This avoids the mobile Chrome redirect flow
-      // that was producing missing initial state.
+      // Diagnostic test:
+      // Use a minimal Facebook popup flow on Chrome,
+      // matching the method used by Google login.
+      console.info(
+        '[Facebook Auth] Opening Firebase popup'
+      )
+
       const result = await signInWithPopup(auth, provider)
+
+      console.info(
+        '[Facebook Auth] Popup authentication succeeded'
+      )
 
       await handleAuthenticatedUser(result.user)
     } catch (error: unknown) {
-      const err = error as {
-        code?: string
-        message?: string
-      }
+      const err = getAuthError(error)
 
-      console.error('Facebook sign-in error:', err)
+      console.error('[Facebook Auth] Login failed', {
+        code: err.code,
+        message: err.message,
+      })
 
       if (err.code === 'auth/cancelled-popup-request') {
         return
@@ -276,7 +284,7 @@ export default function FacebookBtn() {
 
       if (err.code === 'auth/popup-blocked') {
         toast.error(
-          'Chrome blocked the Facebook login popup. Please allow popups for this website.'
+          'Your browser blocked the Facebook login window. Please allow popups for GradeSync.'
         )
       } else if (err.code === 'auth/unauthorized-domain') {
         toast.error(
@@ -296,11 +304,9 @@ export default function FacebookBtn() {
         toast.error(
           'Network error. Please check your internet connection.'
         )
-      } else if (
-        err.code === 'auth/missing-initial-state'
-      ) {
+      } else if (err.code === 'auth/missing-initial-state') {
         toast.error(
-          'Firebase could not restore the Facebook login session. Please check your browser storage settings.'
+          'Firebase could not recover the Facebook authentication session.'
         )
       } else {
         toast.error(
@@ -309,8 +315,10 @@ export default function FacebookBtn() {
         )
       }
     } finally {
-      signingInRef.current = false
-      setLoading(false)
+      if (!redirectStarted) {
+        signingInRef.current = false
+        setLoading(false)
+      }
     }
   }
 
