@@ -1,6 +1,12 @@
 'use client'
 
-import { FacebookAuthProvider, signInWithPopup, signOut } from 'firebase/auth'
+import { useEffect } from 'react'
+import {
+  FacebookAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+} from 'firebase/auth'
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -9,57 +15,136 @@ import { auth, db } from '@/lib/firebase'
 export default function FacebookBtn() {
   const router = useRouter()
 
+  // Handle the redirect result when returning from Facebook on mobile
+  useEffect(() => {
+    let isMounted = true
+
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (result && isMounted) {
+          const user = result.user
+          const userRef = doc(db, 'users', user.uid)
+          const userSnap = await getDoc(userRef)
+
+          let userRole = 'student'
+
+          if (!userSnap.exists()) {
+            const newUserDoc = {
+              uid: user.uid,
+              fullName: user.displayName || 'Facebook User',
+              email: user.email || '',
+              role: 'student',
+              isInstructorVerified: false,
+              verificationStatus: 'none',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            }
+            await setDoc(userRef, newUserDoc)
+          } else {
+            const userData = userSnap.data()
+            if (userData?.role) {
+              userRole = userData.role
+            }
+          }
+
+          const successAudio = new Audio('/sounds/success.mp3')
+          successAudio.play().catch((error) => console.warn('Audio playback prevented:', error))
+
+          toast.success(`Welcome back, ${user.displayName || 'User'}!`, {
+            description: 'Redirecting to dashboard...',
+          })
+
+          const redirectPath = userRole === 'instructor' ? '/instructor/home' : '/students/home'
+
+          setTimeout(() => {
+            router.push(redirectPath)
+          }, 1000)
+        }
+      })
+      .catch((error) => {
+        console.error('Facebook redirect sign-in error:', error)
+
+        const failedAudio = new Audio('/sounds/failed.mp3')
+        failedAudio.play().catch((err) => console.warn('Audio playback prevented:', err))
+
+        toast.error('Failed to sign in with Facebook. Please try again.')
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [router])
+
   const handleFacebookSignIn = async () => {
     try {
-      // Clear current Firebase session to force Facebook re-authentication
-      await signOut(auth).catch(() => {})
-
       const provider = new FacebookAuthProvider()
-      // Force Facebook to prompt for credentials/re-authentication
       provider.setCustomParameters({
         auth_type: 'reauthenticate',
       })
 
-      const result = await signInWithPopup(auth, provider)
-      const user = result.user
+      // Detect if user is on a mobile device
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      )
 
-      const userRef = doc(db, 'users', user.uid)
-      const userSnap = await getDoc(userRef)
-
-      let userRole = 'student'
-
-      if (!userSnap.exists()) {
-        const newUserDoc = {
-          uid: user.uid,
-          fullName: user.displayName || 'Facebook User',
-          email: user.email || '',
-          role: 'student',
-          isInstructorVerified: false,
-          verificationStatus: 'none',
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        }
-        await setDoc(userRef, newUserDoc)
+      if (isMobile) {
+        // Use redirect on mobile to avoid popup and in-app browser failures
+        await signInWithRedirect(auth, provider)
       } else {
-        const userData = userSnap.data()
-        if (userData?.role) {
-          userRole = userData.role
+        // Use popup on desktop
+        try {
+          const result = await signInWithPopup(auth, provider)
+          const user = result.user
+
+          const userRef = doc(db, 'users', user.uid)
+          const userSnap = await getDoc(userRef)
+
+          let userRole = 'student'
+
+          if (!userSnap.exists()) {
+            const newUserDoc = {
+              uid: user.uid,
+              fullName: user.displayName || 'Facebook User',
+              email: user.email || '',
+              role: 'student',
+              isInstructorVerified: false,
+              verificationStatus: 'none',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            }
+            await setDoc(userRef, newUserDoc)
+          } else {
+            const userData = userSnap.data()
+            if (userData?.role) {
+              userRole = userData.role
+            }
+          }
+
+          const successAudio = new Audio('/sounds/success.mp3')
+          successAudio.play().catch((error) => console.warn('Audio playback prevented:', error))
+
+          toast.success(`Welcome back, ${user.displayName || 'User'}!`, {
+            description: 'Redirecting to dashboard...',
+          })
+
+          const redirectPath = userRole === 'instructor' ? '/instructor/home' : '/students/home'
+
+          setTimeout(() => {
+            router.push(redirectPath)
+          }, 1000)
+        } catch (popupError: unknown) {
+          // Fallback to redirect if popup is blocked on desktop
+          const error = popupError as { code?: string }
+          if (
+            error.code === 'auth/popup-blocked' ||
+            error.code === 'auth/cancelled-popup-request'
+          ) {
+            await signInWithRedirect(auth, provider)
+          } else {
+            throw popupError
+          }
         }
       }
-
-      const successAudio = new Audio('/sounds/success.mp3')
-      successAudio.play().catch((error) => console.warn('Audio playback prevented:', error))
-
-      toast.success(`Welcome back, ${user.displayName || 'User'}!`, {
-        description: 'Redirecting to dashboard...',
-      })
-
-      // Dynamic redirect based on role
-      const redirectPath = userRole === 'instructor' ? '/instructor/home' : '/students/home'
-
-      setTimeout(() => {
-        router.push(redirectPath)
-      }, 1000)
     } catch (error) {
       console.error('Facebook sign-in error:', error)
 

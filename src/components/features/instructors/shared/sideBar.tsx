@@ -168,21 +168,20 @@ export default function Sidebar() {
       <aside
         className={`
           fixed inset-y-0 left-0 z-50
-          flex h-screen w-[280px] max-w-[85vw]
-          flex-col justify-between
-          overflow-y-auto
+          flex h-[100dvh] w-[280px] max-w-[85vw]
+          flex-col overflow-y-auto
           bg-gradient-to-b from-blue-900 via-blue-950 to-slate-950
-          p-5 text-white
+          p-4 sm:p-5 text-white
           shadow-2xl
           transition-transform duration-300 ease-in-out
           lg:sticky lg:top-0 lg:z-30
-          lg:w-64 lg:max-w-none
+          lg:h-screen lg:w-64 lg:max-w-none
           lg:translate-x-0
           lg:shadow-none
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >
-        <div className="min-h-0 space-y-8">
+        <div className="min-h-0 space-y-6 sm:space-y-8">
           {/* Mobile Sidebar Header */}
           <div className="flex items-center justify-between lg:hidden">
             <div className="text-sm font-semibold tracking-wide text-white/90">
@@ -280,7 +279,7 @@ export default function Sidebar() {
         </div>
 
         {/* Footer */}
-        <div className="mt-8 space-y-2 border-t border-blue-800/40 pt-6">
+        <div className="mt-auto space-y-2 border-t border-blue-800/40 pt-6 pb-2">
           <Link
             href="/settings"
             onClick={handleNavigation}
