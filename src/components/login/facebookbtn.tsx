@@ -15,7 +15,7 @@ import { auth, db } from '@/lib/firebase'
 export default function FacebookBtn() {
   const router = useRouter()
 
-  // Handle the redirect result when returning from Facebook on mobile
+  // Handle the redirect result (fallback for restricted environments)
   useEffect(() => {
     let isMounted = true
 
@@ -65,13 +65,10 @@ export default function FacebookBtn() {
         const err = error as { code?: string; message?: string }
         console.error('Facebook redirect sign-in error:', err)
 
-        const failedAudio = new Audio('/sounds/failed.mp3')
-        failedAudio.play().catch((audioErr) => console.warn('Audio playback prevented:', audioErr))
-
-        // Specifically catch missing session state / storage partitioning errors
-        if (err.code === 'auth/missing-initial-state' || err.code === 'auth/invalid-credential') {
-          toast.error('Browser storage was blocked or cleared. Please open this site in Chrome or Safari (not inside the Facebook/Messenger app).')
-        } else {
+        // Ignore missing initial state errors on initial page load if no redirect happened
+        if (err.code && err.code !== 'auth/missing-initial-state') {
+          const failedAudio = new Audio('/sounds/failed.mp3')
+          failedAudio.play().catch((audioErr) => console.warn('Audio playback prevented:', audioErr))
           toast.error(err.message || 'Failed to sign in with Facebook. Please try again.')
         }
       })
@@ -87,63 +84,59 @@ export default function FacebookBtn() {
       provider.addScope('email')
       provider.addScope('public_profile')
 
-      // Detect if user is on a mobile device
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-        navigator.userAgent
-      )
+      // Use popup across all devices (including mobile Chrome) to prevent sessionStorage wiping
+      try {
+        const result = await signInWithPopup(auth, provider)
+        const user = result.user
 
-      if (isMobile) {
-        // Use redirect on mobile
-        await signInWithRedirect(auth, provider)
-      } else {
-        // Use popup on desktop
-        try {
-          const result = await signInWithPopup(auth, provider)
-          const user = result.user
+        const userRef = doc(db, 'users', user.uid)
+        const userSnap = await getDoc(userRef)
 
-          const userRef = doc(db, 'users', user.uid)
-          const userSnap = await getDoc(userRef)
+        let userRole = 'student'
 
-          let userRole = 'student'
-
-          if (!userSnap.exists()) {
-            const newUserDoc = {
-              uid: user.uid,
-              fullName: user.displayName || 'Facebook User',
-              email: user.email || '',
-              role: 'student',
-              isInstructorVerified: false,
-              verificationStatus: 'none',
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            }
-            await setDoc(userRef, newUserDoc)
-          } else {
-            const userData = userSnap.data()
-            if (userData?.role) {
-              userRole = userData.role
-            }
+        if (!userSnap.exists()) {
+          const newUserDoc = {
+            uid: user.uid,
+            fullName: user.displayName || 'Facebook User',
+            email: user.email || '',
+            role: 'student',
+            isInstructorVerified: false,
+            verificationStatus: 'none',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
           }
-
-          const successAudio = new Audio('/sounds/success.mp3')
-          successAudio.play().catch((error) => console.warn('Audio playback prevented:', error))
-
-          toast.success(`Welcome back, ${user.displayName || 'User'}!`, {
-            description: 'Redirecting to dashboard...',
-          })
-
-          const redirectPath = userRole === 'instructor' ? '/instructor/home' : '/students/home'
-
-          setTimeout(() => {
-            router.push(redirectPath)
-          }, 1000)
-        } catch (popupError: unknown) {
-          const err = popupError as { code?: string; message?: string }
-          if (err.code === 'auth/popup-blocked') {
-            toast.error('Popup blocked. Please allow popups for this site.')
-          } else if (err.code !== 'auth/cancelled-popup-request') {
-            throw err
+          await setDoc(userRef, newUserDoc)
+        } else {
+          const userData = userSnap.data()
+          if (userData?.role) {
+            userRole = userData.role
           }
+        }
+
+        const successAudio = new Audio('/sounds/success.mp3')
+        successAudio.play().catch((error) => console.warn('Audio playback prevented:', error))
+
+        toast.success(`Welcome back, ${user.displayName || 'User'}!`, {
+          description: 'Redirecting to dashboard...',
+        })
+
+        const redirectPath = userRole === 'instructor' ? '/instructor/home' : '/students/home'
+
+        setTimeout(() => {
+          router.push(redirectPath)
+        }, 1000)
+      } catch (popupError: unknown) {
+        const err = popupError as { code?: string; message?: string }
+        
+        // If popup is blocked or not supported, gracefully fallback to redirect
+        if (
+          err.code === 'auth/popup-blocked' ||
+          err.code === 'auth/popup-closed-by-user' ||
+          err.code === 'auth/operation-not-supported-in-this-environment'
+        ) {
+          await signInWithRedirect(auth, provider)
+        } else if (err.code !== 'auth/cancelled-popup-request') {
+          throw err
         }
       }
     } catch (error: unknown) {
