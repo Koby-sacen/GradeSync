@@ -1,10 +1,12 @@
 
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   FacebookAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   type User,
 } from 'firebase/auth'
 import {
@@ -22,8 +24,9 @@ export default function FacebookBtn() {
 
   const [loading, setLoading] = useState(false)
   const signingInRef = useRef(false)
+  const processingRedirectRef = useRef(false)
 
-  // Play login sounds safely
+  // Play original success and failure sounds
   const playSound = (type: 'success' | 'failed') => {
     try {
       const audio = new Audio(`/sounds/${type}.mp3`)
@@ -32,18 +35,70 @@ export default function FacebookBtn() {
         console.warn('Audio playback prevented:', error)
       })
     } catch (error) {
-      console.warn('Unable to play audio:', error)
+      console.warn('Audio playback unavailable:', error)
     }
   }
 
-  // Handle successful Facebook authentication
+  // Detect Facebook and Messenger in-app browsers
+  const isFacebookOrMessengerBrowser = () => {
+    if (typeof navigator === 'undefined') {
+      return false
+    }
+
+    const userAgent = navigator.userAgent
+
+    return /FBAN|FBAV|FB_IAB|FB4A|FBIOS|Messenger|Orca/i.test(
+      userAgent
+    )
+  }
+
+  // Detect mobile devices
+  const isMobileDevice = () => {
+    if (typeof navigator === 'undefined') {
+      return false
+    }
+
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent
+    )
+  }
+
+  // Detect mobile Chrome
+  const isMobileChrome = () => {
+    if (typeof navigator === 'undefined') {
+      return false
+    }
+
+    const userAgent = navigator.userAgent
+
+    const isAndroidChrome =
+      /Android/i.test(userAgent) &&
+      /Chrome|CriOS/i.test(userAgent)
+
+    const isIOSChrome =
+      /iPhone|iPad|iPod/i.test(userAgent) &&
+      /CriOS/i.test(userAgent)
+
+    const isOtherBrowser =
+      /EdgA|EdgiOS|OPR|OPT|SamsungBrowser|UCBrowser/i.test(
+        userAgent
+      )
+
+    return (
+      (isAndroidChrome || isIOSChrome) &&
+      !isOtherBrowser &&
+      !isFacebookOrMessengerBrowser()
+    )
+  }
+
+  // Shared successful authentication handler
+  // Preserves your original Firestore behavior
   const handleAuthenticatedUser = async (user: User) => {
     const userRef = doc(db, 'users', user.uid)
     const userSnap = await getDoc(userRef)
 
     let userRole = 'student'
 
-    // Create account for first-time Facebook users
     if (!userSnap.exists()) {
       const newUserDoc = {
         uid: user.uid,
@@ -58,7 +113,6 @@ export default function FacebookBtn() {
 
       await setDoc(userRef, newUserDoc)
     } else {
-      // Preserve existing account role and information
       const userData = userSnap.data()
 
       if (userData?.role) {
@@ -80,15 +134,87 @@ export default function FacebookBtn() {
         ? '/instructor/home'
         : '/students/home'
 
-    // Preserve the original dashboard redirect delay
     setTimeout(() => {
       router.push(redirectPath)
     }, 1000)
   }
 
-  // Facebook login for both desktop and mobile browsers
+  // Preserve redirect result handling for
+  // Facebook and Messenger in-app browsers
+  useEffect(() => {
+    let isMounted = true
+
+    // Only process redirect results in browsers
+    // that still use the original redirect flow.
+    if (isMobileChrome()) {
+      return () => {
+        isMounted = false
+      }
+    }
+
+    if (processingRedirectRef.current) {
+      return () => {
+        isMounted = false
+      }
+    }
+
+    processingRedirectRef.current = true
+
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (!result || !isMounted) {
+          return
+        }
+
+        await handleAuthenticatedUser(result.user)
+      })
+      .catch((error: unknown) => {
+        if (!isMounted) {
+          return
+        }
+
+        const err = error as {
+          code?: string
+          message?: string
+        }
+
+        console.error(
+          'Facebook redirect sign-in error:',
+          err
+        )
+
+        playSound('failed')
+
+        if (
+          err.code === 'auth/missing-initial-state' ||
+          err.code === 'auth/invalid-credential'
+        ) {
+          toast.error(
+            'Facebook login session could not be restored. Please try signing in again.'
+          )
+        } else {
+          toast.error(
+            err.message ||
+            'Failed to sign in with Facebook. Please try again.'
+          )
+        }
+      })
+      .finally(() => {
+        processingRedirectRef.current = false
+      })
+
+    return () => {
+      isMounted = false
+    }
+    // Run redirect processing when the component mounts
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Facebook sign-in
   const handleFacebookSignIn = async () => {
-    if (signingInRef.current) return
+    if (signingInRef.current) {
+      return
+    }
 
     signingInRef.current = true
     setLoading(true)
@@ -99,22 +225,34 @@ export default function FacebookBtn() {
       provider.addScope('email')
       provider.addScope('public_profile')
 
+      const mobile = isMobileDevice()
+      const mobileChrome = isMobileChrome()
+      const inAppBrowser = isFacebookOrMessengerBrowser()
+
+      console.log('Facebook authentication browser:', {
+        mobile,
+        mobileChrome,
+        inAppBrowser,
+      })
+
       // IMPORTANT:
-      // Use popup authentication on ALL devices.
+      // Preserve the original redirect authentication
+      // for Facebook and Messenger in-app browsers.
       //
-      // This avoids the Firebase redirect flow that can
-      // fail with missing initial state on mobile Chrome.
-      //
-      // Call signInWithPopup directly from the click
-      // handler so the browser recognizes user interaction.
-
-      const result = await signInWithPopup(auth, provider)
-
-      if (!result.user) {
-        throw new Error(
-          'Facebook authentication did not return a user.'
-        )
+      // Also preserve redirect for other mobile browsers
+      // except Chrome, matching your original behavior.
+      if (mobile && !mobileChrome) {
+        await signInWithRedirect(auth, provider)
+        return
       }
+
+      // FIX:
+      // Mobile Chrome uses popup authentication.
+      // Desktop browsers continue using popup.
+      //
+      // This avoids the mobile Chrome redirect flow
+      // that was producing missing initial state.
+      const result = await signInWithPopup(auth, provider)
 
       await handleAuthenticatedUser(result.user)
     } catch (error: unknown) {
@@ -125,14 +263,12 @@ export default function FacebookBtn() {
 
       console.error('Facebook sign-in error:', err)
 
-      // User intentionally closed the login popup
-      if (err.code === 'auth/popup-closed-by-user') {
-        toast.info('Facebook login was cancelled.')
+      if (err.code === 'auth/cancelled-popup-request') {
         return
       }
 
-      // Firebase cancelled an overlapping popup request
-      if (err.code === 'auth/cancelled-popup-request') {
+      if (err.code === 'auth/popup-closed-by-user') {
+        toast.info('Facebook login was cancelled.')
         return
       }
 
@@ -140,7 +276,7 @@ export default function FacebookBtn() {
 
       if (err.code === 'auth/popup-blocked') {
         toast.error(
-          'Facebook popup was blocked. Please allow popups for this website in your browser settings.'
+          'Chrome blocked the Facebook login popup. Please allow popups for this website.'
         )
       } else if (err.code === 'auth/unauthorized-domain') {
         toast.error(
@@ -150,7 +286,7 @@ export default function FacebookBtn() {
         err.code === 'auth/account-exists-with-different-credential'
       ) {
         toast.error(
-          'An account already exists with this email using another sign-in method.'
+          'An account already exists with this email using another login method.'
         )
       } else if (err.code === 'auth/operation-not-allowed') {
         toast.error(
@@ -158,15 +294,13 @@ export default function FacebookBtn() {
         )
       } else if (err.code === 'auth/network-request-failed') {
         toast.error(
-          'Network error. Please check your internet connection and try again.'
+          'Network error. Please check your internet connection.'
         )
-      } else if (err.code === 'auth/invalid-credential') {
+      } else if (
+        err.code === 'auth/missing-initial-state'
+      ) {
         toast.error(
-          'Facebook authentication credentials are invalid. Please try again.'
-        )
-      } else if (err.code === 'auth/internal-error') {
-        toast.error(
-          'An authentication error occurred. Please try again.'
+          'Firebase could not restore the Facebook login session. Please check your browser storage settings.'
         )
       } else {
         toast.error(
