@@ -1,11 +1,27 @@
-import React from 'react'
-import StudentSidebar from '@/components/features/students/shared/sideBar' // Adjust the import path if your sidebar is located elsewhere
+
+import type { ReactNode } from 'react'
+import StudentSidebar from '@/components/features/students/shared/sideBar'
+import { requireRole } from '@/lib/require-role'
 
 interface StudentLayoutProps {
-  children: React.ReactNode
+  children: ReactNode
 }
 
-export default function StudentLayout({ children }: StudentLayoutProps) {
+export default async function StudentLayout({
+  children,
+}: StudentLayoutProps) {
+  // SECURITY:
+  // Verify the Firebase session cookie on the server.
+  // Only users with the "student" role can access
+  // pages inside /students/*.
+  //
+  // Instructors are redirected to /instructor/home.
+  // Unauthenticated users are redirected to /login.
+  //
+  // Verification happens before the student
+  // layout and sidebar are rendered.
+  await requireRole('student')
+
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
       {/* Student Sidebar */}

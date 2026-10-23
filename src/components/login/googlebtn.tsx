@@ -2,6 +2,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+
 import {
   GoogleAuthProvider,
   signInWithPopup,
@@ -9,6 +10,7 @@ import {
   getRedirectResult,
   type User,
 } from 'firebase/auth'
+
 import {
   doc,
   getDoc,
@@ -16,9 +18,15 @@ import {
   updateDoc,
   serverTimestamp,
 } from 'firebase/firestore'
+
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { auth, db } from '@/lib/firebase'
+import { createServerSession } from '@/lib/create-session'
+
+// --------------------------------------------------
+// BROWSER DETECTION
+// --------------------------------------------------
 
 function isInAppBrowser(): boolean {
   if (typeof navigator === 'undefined') return false
@@ -55,6 +63,10 @@ function shouldUseRedirect(): boolean {
   return isMobileDevice() && !isMobileChrome()
 }
 
+// --------------------------------------------------
+// SOUNDS
+// --------------------------------------------------
+
 function playSound(type: 'success' | 'failed') {
   try {
     const audio = new Audio(`/sounds/${type}.mp3`)
@@ -66,6 +78,10 @@ function playSound(type: 'success' | 'failed') {
     console.warn('Audio playback unavailable:', error)
   }
 }
+
+// --------------------------------------------------
+// ERROR HANDLING
+// --------------------------------------------------
 
 function getError(error: unknown): {
   code?: string
@@ -81,6 +97,10 @@ function getError(error: unknown): {
   return { message: String(error) }
 }
 
+// --------------------------------------------------
+// GOOGLE LOGIN BUTTON
+// --------------------------------------------------
+
 export default function GoogleBtn() {
   const router = useRouter()
 
@@ -89,6 +109,10 @@ export default function GoogleBtn() {
   const signingInRef = useRef(false)
   const redirectProcessingRef = useRef(false)
   const completedUserRef = useRef<string | null>(null)
+
+  // ------------------------------------------------
+  // FIRESTORE ACCOUNT HANDLING + SERVER SESSION
+  // ------------------------------------------------
 
   const handleAuthenticatedUser = useCallback(
     async (user: User) => {
@@ -129,6 +153,43 @@ export default function GoogleBtn() {
           }
         }
 
+        console.info(
+          '[Google Auth] Firebase authentication successful',
+          {
+            uid: user.uid,
+            role: userRole,
+          }
+        )
+
+        // --------------------------------------------
+        // NEW: CREATE SECURE SERVER SESSION
+        // --------------------------------------------
+
+        // The server verifies the Firebase ID token,
+        // checks the user's current Firestore role,
+        // and creates an HttpOnly session cookie.
+        //
+        // Wait until this succeeds before redirecting.
+        // The server determines the authorized dashboard.
+
+        console.info(
+          '[Google Auth] Creating secure server session'
+        )
+
+        const redirectPath =
+          await createServerSession(user)
+
+        console.info(
+          '[Google Auth] Server session established',
+          {
+            redirectPath,
+          }
+        )
+
+        // --------------------------------------------
+        // PRESERVE SUCCESS SOUND AND NOTIFICATION
+        // --------------------------------------------
+
         playSound('success')
 
         toast.success(
@@ -138,13 +199,13 @@ export default function GoogleBtn() {
           }
         )
 
-        const redirectPath =
-          userRole === 'instructor'
-            ? '/instructor/home'
-            : '/students/home'
+        // --------------------------------------------
+        // REDIRECT AFTER SERVER SESSION CREATION
+        // --------------------------------------------
 
         setTimeout(() => {
           router.push(redirectPath)
+          router.refresh()
         }, 1000)
       } catch (error) {
         completedUserRef.current = null
@@ -153,6 +214,10 @@ export default function GoogleBtn() {
     },
     [router]
   )
+
+  // ------------------------------------------------
+  // PRESERVE MOBILE REDIRECT AUTHENTICATION
+  // ------------------------------------------------
 
   useEffect(() => {
     let active = true
@@ -211,6 +276,10 @@ export default function GoogleBtn() {
     }
   }, [handleAuthenticatedUser])
 
+  // ------------------------------------------------
+  // MAIN GOOGLE SIGN-IN
+  // ------------------------------------------------
+
   const handleGoogleSignIn = async () => {
     if (signingInRef.current) return
 
@@ -234,7 +303,7 @@ export default function GoogleBtn() {
       })
 
       if (redirect) {
-        // Use the Messenger-style redirect flow.
+        // Preserve the Messenger-style redirect flow.
         await signInWithRedirect(auth, provider)
         return
       }
@@ -242,6 +311,7 @@ export default function GoogleBtn() {
       // Preserve the working Google popup flow on Chrome.
       const result = await signInWithPopup(auth, provider)
 
+      // NEW: Also creates the secure server session.
       await handleAuthenticatedUser(result.user)
     } catch (error: unknown) {
       const err = getError(error)
@@ -300,6 +370,10 @@ export default function GoogleBtn() {
       setLoading(false)
     }
   }
+
+  // --------------------------------------------------
+  // BUTTON UI — PRESERVED
+  // --------------------------------------------------
 
   return (
     <button

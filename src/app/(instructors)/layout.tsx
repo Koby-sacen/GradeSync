@@ -1,10 +1,25 @@
-import Sidebar from '@/components/features/instructors/shared/sideBar'
 
-export default function DashboardLayout({
+import type { ReactNode } from 'react'
+import Sidebar from '@/components/features/instructors/shared/sideBar'
+import { requireRole } from '@/lib/require-role'
+
+export default async function DashboardLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: ReactNode
 }) {
+  // SECURITY:
+  // Verify the Firebase session cookie on the server.
+  // Only users with the "instructor" role can access
+  // pages inside /instructor/*.
+  //
+  // Students are redirected to /students/home.
+  // Unauthenticated users are redirected to /login.
+  //
+  // Verification happens before the dashboard
+  // layout and sidebar are rendered.
+  await requireRole('instructor')
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#edf4f8] font-sans text-slate-800">
       <Sidebar />

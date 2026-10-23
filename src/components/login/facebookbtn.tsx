@@ -27,13 +27,12 @@ import {
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { auth, db } from '@/lib/firebase'
+import { createServerSession } from '@/lib/create-session'
 
 // --------------------------------------------------
 // FACEBOOK CONFIGURATION
 // --------------------------------------------------
 
-// Facebook App ID from your Meta Developers screenshot.
-// This is a public App ID, NOT your Facebook App Secret.
 const FACEBOOK_APP_ID = '1350948810219370'
 
 const FACEBOOK_SDK_URL =
@@ -113,7 +112,6 @@ function isAndroidChrome(): boolean {
   const ua = navigator.userAgent
 
   const android = /Android/i.test(ua)
-
   const chrome = /Chrome/i.test(ua)
 
   const otherBrowser =
@@ -311,8 +309,7 @@ function loginWithFacebookSDK(
     }
 
     try {
-      // This must be initiated directly from the
-      // button click, after the SDK has loaded.
+      // Must be initiated from the login button.
       sdk.login(
         (response) => {
           console.info(
@@ -473,7 +470,7 @@ export default function FacebookBtn() {
   const completedUserRef = useRef<string | null>(null)
 
   // ------------------------------------------------
-  // PRESERVE FIRESTORE ACCOUNT HANDLING
+  // FIRESTORE ACCOUNT HANDLING + SERVER SESSION
   // ------------------------------------------------
 
   const handleAuthenticatedUser = useCallback(
@@ -519,6 +516,35 @@ export default function FacebookBtn() {
           }
         )
 
+        // --------------------------------------------
+        // NEW: CREATE SECURE SERVER SESSION
+        // --------------------------------------------
+
+        // The server verifies the Firebase ID token,
+        // retrieves the current role from Firestore,
+        // and creates an HttpOnly session cookie.
+        //
+        // Wait until this succeeds before redirecting.
+        // Do not rely on the client-side role alone.
+
+        console.info(
+          '[Facebook Auth] Creating secure server session'
+        )
+
+        const redirectPath =
+          await createServerSession(user)
+
+        console.info(
+          '[Facebook Auth] Server session established',
+          {
+            redirectPath,
+          }
+        )
+
+        // --------------------------------------------
+        // PRESERVE SUCCESS SOUND AND TOAST
+        // --------------------------------------------
+
         playSound('success')
 
         toast.success(
@@ -528,13 +554,13 @@ export default function FacebookBtn() {
           }
         )
 
-        const redirectPath =
-          userRole === 'instructor'
-            ? '/instructor/home'
-            : '/students/home'
+        // --------------------------------------------
+        // REDIRECT AFTER SESSION CREATION
+        // --------------------------------------------
 
         setTimeout(() => {
           router.push(redirectPath)
+          router.refresh()
         }, 1000)
       } catch (error) {
         completedUserRef.current = null
@@ -672,6 +698,7 @@ export default function FacebookBtn() {
 
     // Obtain a Facebook access token without calling
     // Firebase signInWithPopup or signInWithRedirect.
+
     const accessToken = await loginWithFacebookSDK(
       window.FB
     )
@@ -681,10 +708,12 @@ export default function FacebookBtn() {
     )
 
     // Never log the access token itself.
+
     const credential =
       FacebookAuthProvider.credential(accessToken)
 
     // Authenticate directly with Firebase.
+
     const result = await signInWithCredential(
       auth,
       credential
@@ -693,6 +722,8 @@ export default function FacebookBtn() {
     console.info(
       '[Facebook Auth] Firebase credential accepted'
     )
+
+    // Also creates the server session before redirecting.
 
     await handleAuthenticatedUser(result.user)
   }
@@ -727,6 +758,7 @@ export default function FacebookBtn() {
 
       // Android Chrome uses the alternative
       // Facebook JavaScript SDK authentication.
+
       if (method === 'facebook-sdk') {
         await handleAndroidChromeLogin()
         return
@@ -738,6 +770,7 @@ export default function FacebookBtn() {
 
       // Messenger and other mobile browsers retain
       // their existing Firebase redirect process.
+
       if (method === 'firebase-redirect') {
         console.info(
           '[Facebook Auth] Starting Firebase redirect'
@@ -750,6 +783,7 @@ export default function FacebookBtn() {
       }
 
       // Desktop retains its existing working popup.
+
       console.info(
         '[Facebook Auth] Starting Firebase popup'
       )
@@ -758,6 +792,8 @@ export default function FacebookBtn() {
         auth,
         provider
       )
+
+      // Creates the server session after login.
 
       await handleAuthenticatedUser(result.user)
     } catch (error) {

@@ -1,31 +1,94 @@
-// app/page.tsx
+
 'use client'
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { onAuthStateChanged } from 'firebase/auth'
-import { auth } from '@/lib/firebase' // adjust import path
+import { doc, getDoc } from 'firebase/firestore'
+import { auth, db } from '@/lib/firebase'
 
 export default function RootPage() {
   const router = useRouter()
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        // User is signed in, send to home page
-        router.replace('/instructor/home')
-      } else {
-        // User is signed out, send to login
+    let active = true
+
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!active) return
+
+      // No authenticated account
+      if (!user) {
         router.replace('/login')
+        return
+      }
+
+      try {
+        // Retrieve the authenticated user's Firestore profile
+        const userRef = doc(db, 'users', user.uid)
+        const userSnap = await getDoc(userRef)
+
+        if (!active) return
+
+        // User profile doesn't exist
+        if (!userSnap.exists()) {
+          console.warn(
+            '[GradeSync] User profile not found:',
+            user.uid
+          )
+
+          router.replace('/login')
+          return
+        }
+
+        const userData = userSnap.data()
+        const role = userData?.role
+
+        // Only instructors enter the instructor dashboard
+        if (role === 'instructor') {
+          router.replace('/instructor/home')
+          return
+        }
+
+        // Only students enter the student dashboard
+        if (role === 'student') {
+          router.replace('/students/home')
+          return
+        }
+
+        // Unknown or invalid roles are denied
+        console.warn(
+          '[GradeSync] Unrecognized account role:',
+          role
+        )
+
+        router.replace('/login')
+      } catch (error) {
+        console.error(
+          '[GradeSync] Failed to verify user role:',
+          error
+        )
+
+        if (active) {
+          router.replace('/login')
+        }
       }
     })
 
-    return () => unsubscribe()
+    return () => {
+      active = false
+      unsubscribe()
+    }
   }, [router])
 
   return (
-    <div className="flex h-screen items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-800" />
+    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex flex-col items-center gap-4">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-800" />
+
+        <p className="text-sm font-medium text-slate-600">
+          Verifying your account...
+        </p>
+      </div>
     </div>
   )
 }
