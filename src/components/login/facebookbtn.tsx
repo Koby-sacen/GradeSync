@@ -78,9 +78,10 @@ export default function FacebookBtn() {
   const handleFacebookSignIn = async () => {
     try {
       const provider = new FacebookAuthProvider()
-      provider.setCustomParameters({
-        auth_type: 'reauthenticate',
-      })
+      
+      // Request standard profile and email scopes without forcing re-auth
+      provider.addScope('email')
+      provider.addScope('public_profile')
 
       // Detect if user is on a mobile device
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
@@ -88,10 +89,10 @@ export default function FacebookBtn() {
       )
 
       if (isMobile) {
-        // Use redirect on mobile to avoid popup and in-app browser failures
+        // Use redirect on mobile
         await signInWithRedirect(auth, provider)
       } else {
-        // Use popup on desktop
+        // Use popup on desktop to keep the session active and prevent cross-site token loss
         try {
           const result = await signInWithPopup(auth, provider)
           const user = result.user
@@ -133,15 +134,13 @@ export default function FacebookBtn() {
             router.push(redirectPath)
           }, 1000)
         } catch (popupError: unknown) {
-          // Fallback to redirect if popup is blocked on desktop
-          const error = popupError as { code?: string }
-          if (
-            error.code === 'auth/popup-blocked' ||
-            error.code === 'auth/cancelled-popup-request'
-          ) {
-            await signInWithRedirect(auth, provider)
-          } else {
-            throw popupError
+          const error = popupError as { code?: string; message?: string }
+          console.error('Popup sign-in error:', error)
+
+          if (error.code === 'auth/popup-blocked') {
+            toast.error('Popup was blocked by your browser. Please allow popups for this site to sign in with Facebook.')
+          } else if (error.code !== 'auth/cancelled-popup-request') {
+            toast.error(error.message || 'Failed to sign in with Facebook.')
           }
         }
       }
