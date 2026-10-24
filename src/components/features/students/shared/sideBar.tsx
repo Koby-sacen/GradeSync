@@ -1,8 +1,14 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, {
+  useEffect,
+  useState,
+  type ComponentType,
+} from 'react'
+
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+
 import {
   Home,
   FileText,
@@ -12,97 +18,323 @@ import {
   X,
   AlertTriangle,
   Menu,
+  History,
+  Bell,
+  Megaphone,
+  MessageSquare,
+  ChevronRight,
 } from 'lucide-react'
+
 import {
   onAuthStateChanged,
   signOut,
-  User as FirebaseUser,
+  type User as FirebaseUser,
 } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
+
+import {
+  doc,
+  onSnapshot,
+} from 'firebase/firestore'
+
 import { auth, db } from '@/lib/firebase'
+
+// Types
+
+interface StudentUserData {
+  fullName?: string
+  displayName?: string
+  name?: string
+  email?: string
+  studentEmail?: string
+  photoURL?: string
+}
+
+interface NavigationLink {
+  name: string
+  href: string
+  icon: ComponentType<{
+    size?: number
+    className?: string
+  }>
+}
+
+interface NavigationSection {
+  title: string
+  links: NavigationLink[]
+}
+
+// Navigation sections
+
+const navigationSections: NavigationSection[] = [
+  {
+    title: 'MAIN',
+    links: [
+      {
+        name: 'Home',
+        href: '/students/home',
+        icon: Home,
+      },
+      {
+        name: 'Create Clearance',
+        href: '/students/Clearance',
+        icon: FileText,
+      },
+      {
+        name: 'Activity',
+        href: '/students/activity',
+        icon: History,
+      },
+    ],
+  },
+  {
+    title: 'COMMUNICATIONS',
+    links: [
+      {
+        name: 'Notifications',
+        href: '/students/Notifications',
+        icon: Bell,
+      },
+      {
+        name: 'Announcements',
+        href: '/students/Announcements',
+        icon: Megaphone,
+      },
+    ],
+  },
+  {
+    title: 'HELP',
+    links: [
+      {
+        name: 'Feedback & Support',
+        href: '/students/Feedback&Support',
+        icon: MessageSquare,
+      },
+    ],
+  },
+  {
+    title: 'ACCOUNT',
+    links: [
+      {
+        name: 'Profile',
+        href: '/students/profile',
+        icon: User,
+      },
+      {
+        name: 'Settings',
+        href: '/students/settings',
+        icon: Settings,
+      },
+    ],
+  },
+]
+
+// Helpers
+
+function getText(value: unknown): string {
+  return typeof value === 'string'
+    ? value.trim()
+    : ''
+}
+
+function getGoogleProvider(
+  user: FirebaseUser | null
+) {
+  if (!user) return null
+
+  return (
+    user.providerData.find(
+      (provider) =>
+        provider.providerId === 'google.com'
+    ) || null
+  )
+}
+
+// Student Sidebar
 
 export default function StudentSidebar() {
   const pathname = usePathname()
   const router = useRouter()
 
-  const [user, setUser] = useState<FirebaseUser | null>(null)
-  const [dbUserData, setDbUserData] = useState<{ fullName?: string; email?: string; photoURL?: string } | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [imageError, setImageError] = useState(false)
+  const [user, setUser] =
+    useState<FirebaseUser | null>(null)
 
-  const [showLogoutModal, setShowLogoutModal] = useState(false)
-  const [loggingOut, setLoggingOut] = useState(false)
+  const [dbUserData, setDbUserData] =
+    useState<StudentUserData | null>(null)
 
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [loading, setLoading] =
+    useState(true)
+
+  const [imageError, setImageError] =
+    useState(false)
+
+  const [showLogoutModal, setShowLogoutModal] =
+    useState(false)
+
+  const [loggingOut, setLoggingOut] =
+    useState(false)
+
+  const [sidebarOpen, setSidebarOpen] =
+    useState(false)
+
+  // Firebase authentication and live profile
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser)
-      if (currentUser) {
-        try {
-          const userRef = doc(db, 'users', currentUser.uid)
-          const userSnap = await getDoc(userRef)
-          if (userSnap.exists()) {
-            setDbUserData(userSnap.data())
-          }
-        } catch (error) {
-          console.error('Error fetching user profile from Firestore:', error)
+    let active = true
+
+    let unsubscribeProfile:
+      | (() => void)
+      | null = null
+
+    const unsubscribeAuth = onAuthStateChanged(
+      auth,
+      (currentUser) => {
+        if (!active) return
+
+        if (unsubscribeProfile) {
+          unsubscribeProfile()
+          unsubscribeProfile = null
         }
-      } else {
+
+        setUser(currentUser)
         setDbUserData(null)
-      }
-      setLoading(false)
-      setImageError(false)
-    })
+        setImageError(false)
 
-    return () => unsubscribe()
-  }, [])
-
-  const handleCloseLogoutModal = () => {
-    if (loggingOut) return
-    setShowLogoutModal(false)
-  }
-
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (showLogoutModal && !loggingOut) {
-          setShowLogoutModal(false)
+        if (!currentUser) {
+          setLoading(false)
           return
         }
 
-        if (sidebarOpen) {
-          setSidebarOpen(false)
-        }
+        setLoading(true)
+
+        const userRef = doc(
+          db,
+          'users',
+          currentUser.uid
+        )
+
+        unsubscribeProfile = onSnapshot(
+          userRef,
+          (snapshot) => {
+            if (!active) return
+
+            if (snapshot.exists()) {
+              setDbUserData(
+                snapshot.data() as StudentUserData
+              )
+            } else {
+              setDbUserData(null)
+            }
+
+            setLoading(false)
+          },
+          (error) => {
+            console.error(
+              '[Student Sidebar] Profile listener error:',
+              error
+            )
+
+            if (!active) return
+
+            setDbUserData(null)
+            setLoading(false)
+          }
+        )
+      }
+    )
+
+    return () => {
+      active = false
+      unsubscribeAuth()
+
+      if (unsubscribeProfile) {
+        unsubscribeProfile()
+      }
+    }
+  }, [])
+
+  // Escape key support
+
+  useEffect(() => {
+    const handleEscape = (
+      event: KeyboardEvent
+    ) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      if (showLogoutModal && !loggingOut) {
+        setShowLogoutModal(false)
+        return
+      }
+
+      if (sidebarOpen) {
+        setSidebarOpen(false)
       }
     }
 
-    document.addEventListener('keydown', handleEscape)
+    document.addEventListener(
+      'keydown',
+      handleEscape
+    )
 
     return () => {
-      document.removeEventListener('keydown', handleEscape)
+      document.removeEventListener(
+        'keydown',
+        handleEscape
+      )
     }
-  }, [showLogoutModal, loggingOut, sidebarOpen])
+  }, [
+    showLogoutModal,
+    loggingOut,
+    sidebarOpen,
+  ])
+
+  // Prevent background scrolling
 
   useEffect(() => {
-    if (sidebarOpen || showLogoutModal) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
+    if (!sidebarOpen && !showLogoutModal) {
+      return
     }
+
+    const previousOverflow =
+      document.body.style.overflow
+
+    document.body.style.overflow = 'hidden'
 
     return () => {
-      document.body.style.overflow = ''
+      document.body.style.overflow =
+        previousOverflow
     }
-  }, [sidebarOpen, showLogoutModal])
+  }, [
+    sidebarOpen,
+    showLogoutModal,
+  ])
+
+  // Navigation handlers
 
   const handleNavigation = () => {
+    setSidebarOpen(false)
+  }
+
+  const handleOpenSidebar = () => {
+    setSidebarOpen(true)
+  }
+
+  const handleCloseSidebar = () => {
     setSidebarOpen(false)
   }
 
   const handleOpenLogoutModal = () => {
     setShowLogoutModal(true)
   }
+
+  const handleCloseLogoutModal = () => {
+    if (loggingOut) return
+
+    setShowLogoutModal(false)
+  }
+
+  // Logout
 
   const handleLogOut = async () => {
     if (loggingOut) return
@@ -115,108 +347,179 @@ export default function StudentSidebar() {
       setShowLogoutModal(false)
       setSidebarOpen(false)
 
-      router.push('/login')
+      router.replace('/login')
     } catch (error) {
-      console.error('Logout error:', error)
+      console.error(
+        '[Student Sidebar] Logout error:',
+        error
+      )
+
       setLoggingOut(false)
     }
   }
 
+  // Google account information
+
+  const googleProvider =
+    getGoogleProvider(user)
+
   const photoURL =
-    dbUserData?.photoURL ||
-    user?.photoURL ||
-    user?.providerData?.[0]?.photoURL ||
+    getText(dbUserData?.photoURL) ||
+    getText(user?.photoURL) ||
+    getText(googleProvider?.photoURL) ||
+    getText(user?.providerData?.[0]?.photoURL) ||
     null
 
   const displayName =
-    dbUserData?.fullName ||
-    user?.displayName ||
-    user?.providerData?.[0]?.displayName ||
+    getText(dbUserData?.fullName) ||
+    getText(dbUserData?.displayName) ||
+    getText(dbUserData?.name) ||
+    getText(user?.displayName) ||
+    getText(googleProvider?.displayName) ||
+    getText(user?.providerData?.[0]?.displayName) ||
     'Student'
 
   const email =
-    dbUserData?.email ||
-    user?.email ||
-    user?.providerData?.[0]?.email ||
+    getText(user?.email) ||
+    getText(googleProvider?.email) ||
+    getText(dbUserData?.email) ||
+    getText(dbUserData?.studentEmail) ||
+    getText(user?.providerData?.[0]?.email) ||
     ''
 
-  const navLinks = [
-    {
-      name: 'Home',
-      href: '/students/home',
-      icon: Home,
-    },
-    {
-      name: 'Create Clearance',
-      href: '/students/Clearance',
-      icon: FileText,
-    },
-    {
-      name: 'Profile',
-      href: '/students/profile',
-      icon: User,
-    },
-  ]
+  // Active route detection
+
+  const isLinkActive = (
+    href: string
+  ): boolean => {
+    if (pathname === href) {
+      return true
+    }
+
+    if (href === '/students/home') {
+      return false
+    }
+
+    return pathname.startsWith(`${href}/`)
+  }
+
+  // Navigation link renderer
+
+  const renderNavigationLink = (
+    link: NavigationLink
+  ) => {
+    const Icon = link.icon
+    const isActive = isLinkActive(link.href)
+
+    return (
+      <Link
+        key={link.href}
+        href={link.href}
+        onClick={handleNavigation}
+        aria-current={
+          isActive ? 'page' : undefined
+        }
+        className={`group flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 border ${
+          isActive
+            ? 'border-emerald-500/30 bg-emerald-600/30 font-semibold text-white shadow-inner'
+            : 'border-transparent text-emerald-100/80 hover:border-white/10 hover:bg-white/10 hover:text-white'
+        }`}
+      >
+        <Icon
+          size={18}
+          className={`shrink-0 transition-colors duration-200 ${
+            isActive
+              ? 'text-emerald-300'
+              : 'text-emerald-400 group-hover:text-emerald-200'
+          }`}
+        />
+
+        <span className="min-w-0 flex-1 truncate">
+          {link.name}
+        </span>
+
+        {isActive && (
+          <ChevronRight
+            size={15}
+            className="shrink-0 text-emerald-300"
+          />
+        )}
+      </Link>
+    )
+  }
+
+  // Sidebar UI
 
   return (
     <>
-      {/* Mobile Menu Button - Styled differently with emerald/teal theme */}
+      {/* Mobile menu button */}
+
       <button
         type="button"
-        onClick={() => setSidebarOpen(true)}
-        className="fixed left-4 top-4 z-40 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-700 text-white shadow-lg transition hover:bg-emerald-800 lg:hidden"
+        onClick={handleOpenSidebar}
         aria-label="Open navigation"
+        aria-controls="student-sidebar"
         aria-expanded={sidebarOpen}
+        className={`fixed left-4 top-4 z-40 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-700 text-white shadow-lg transition hover:bg-emerald-800 lg:hidden ${
+          sidebarOpen
+            ? 'pointer-events-none opacity-0'
+            : 'opacity-100'
+        }`}
       >
-        <Menu size={21} />
+        <Menu size={21} aria-hidden="true" />
       </button>
 
-      {/* Mobile Overlay */}
+      {/* Mobile overlay */}
+
       {sidebarOpen && (
-        <button
-          type="button"
-          aria-label="Close navigation"
-          onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-[2px] lg:hidden"
-        />
+        <div className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-[2px] lg:hidden">
+          <button
+            type="button"
+            onClick={handleCloseSidebar}
+            aria-label="Close navigation overlay"
+            className="absolute inset-0 h-full w-full cursor-default"
+          />
+        </div>
       )}
 
-      {/* Student Sidebar - Styled with Emerald/Teal gradient look */}
+      {/* Student sidebar */}
+
       <aside
-        className={`
-          fixed inset-y-0 left-0 z-50
-          flex h-[100dvh] w-[280px] max-w-[85vw]
-          flex-col overflow-y-auto
-          bg-gradient-to-b from-emerald-900 to-teal-950
-          p-4 sm:p-5 text-white
-          shadow-2xl
-          transition-transform duration-300 ease-in-out
-          lg:sticky lg:top-0 lg:z-30
-          lg:h-screen lg:w-64 lg:max-w-none
-          lg:translate-x-0
-          lg:shadow-none
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        `}
+        id="student-sidebar"
+        aria-label="Student sidebar"
+        className={`fixed inset-y-0 left-0 z-50 flex h-[100dvh] w-[280px] max-w-[85vw] flex-col overflow-y-auto bg-gradient-to-b from-emerald-900 to-teal-950 p-4 sm:p-5 text-white shadow-2xl transition-transform duration-300 ease-in-out lg:sticky lg:top-0 lg:z-30 lg:h-screen lg:w-64 lg:max-w-none lg:translate-x-0 lg:shadow-none ${
+          sidebarOpen
+            ? 'translate-x-0'
+            : '-translate-x-full'
+        }`}
       >
-        <div className="min-h-0 space-y-6 sm:space-y-8">
-          {/* Mobile Sidebar Header */}
-          <div className="flex items-center justify-between lg:hidden">
+        {/* Sidebar content */}
+
+        <div className="min-h-0">
+
+          {/* Mobile sidebar header */}
+
+          <div className="mb-5 flex items-center justify-between lg:hidden">
             <div className="text-sm font-semibold tracking-wide text-emerald-200">
               Student Portal
             </div>
 
             <button
               type="button"
-              onClick={() => setSidebarOpen(false)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-emerald-100/80 transition hover:bg-white/10 hover:text-white"
+              onClick={handleCloseSidebar}
               aria-label="Close navigation"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-emerald-100/80 transition hover:bg-white/10 hover:text-white"
             >
               <X size={20} />
             </button>
           </div>
 
-          {/* User Info */}
-          <div className="flex min-w-0 items-center gap-3">
+          {/* User information */}
+
+          <div className="flex min-w-0 items-center gap-3 pb-5">
+
+            {/* Profile photo */}
+
             <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-emerald-400/30 bg-emerald-800 shadow-md">
               {loading ? (
                 <div className="h-full w-full animate-pulse bg-emerald-700" />
@@ -233,15 +536,20 @@ export default function StudentSidebar() {
                 />
               ) : (
                 <div className="flex h-full w-full items-center justify-center bg-emerald-600 font-bold text-white">
-                  {displayName.charAt(0).toUpperCase()}
+                  {displayName
+                    .charAt(0)
+                    .toUpperCase()}
                 </div>
               )}
             </div>
+
+            {/* User name and email */}
 
             <div className="flex min-w-0 flex-1 flex-col">
               {loading ? (
                 <>
                   <div className="mb-2 h-4 w-24 animate-pulse rounded bg-emerald-900/50" />
+
                   <div className="h-3 w-32 animate-pulse rounded bg-emerald-900/40" />
                 </>
               ) : (
@@ -258,67 +566,69 @@ export default function StudentSidebar() {
             </div>
           </div>
 
-          {/* Navigation */}
-          <nav className="space-y-2">
-            {navLinks.map((link) => {
-              const Icon = link.icon
-              const isActive = pathname === link.href
+          {/* Profile divider */}
 
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  onClick={handleNavigation}
-                  className={`
-                    flex items-center gap-3 rounded-xl
-                    px-4 py-3
-                    text-sm font-medium
-                    transition
-                    ${
-                      isActive
-                        ? 'bg-emerald-600/30 font-semibold text-emerald-100 shadow-inner border border-emerald-500/30'
-                        : 'text-emerald-100/80 hover:bg-white/10 hover:text-white'
-                    }
-                  `}
+          <div className="mb-3 border-t border-emerald-700/30" />
+
+          {/* Grouped navigation */}
+
+          <nav
+            aria-label="Student navigation"
+            className="space-y-5"
+          >
+            {navigationSections.map(
+              (section, sectionIndex) => (
+                <div
+                  key={section.title}
+                  className="space-y-1"
                 >
-                  <Icon
-                    size={18}
-                    className="shrink-0 text-emerald-400"
-                  />
+                  {/* Section label */}
 
-                  <span className="truncate">
-                    {link.name}
-                  </span>
-                </Link>
+                  <div className="flex items-center gap-3 px-3.5 pb-1.5 pt-2">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300/65">
+                      {section.title}
+                    </span>
+
+                    <div className="h-px flex-1 bg-emerald-400/10" />
+                  </div>
+
+                  {/* Section links */}
+
+                  <div className="space-y-1">
+                    {section.links.map(
+                      renderNavigationLink
+                    )}
+                  </div>
+
+                  {/* Section separator */}
+
+                  {sectionIndex <
+                    navigationSections.length - 1 && (
+                    <div className="pt-3">
+                      <div className="border-t border-emerald-700/20" />
+                    </div>
+                  )}
+                </div>
               )
-            })}
+            )}
           </nav>
         </div>
 
-        {/* Footer */}
-        <div className="mt-auto space-y-2 border-t border-emerald-800/40 pt-6 pb-2">
-          <Link
-            href="/students/settings"
-            onClick={handleNavigation}
-            className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-emerald-100/80 transition hover:bg-white/10 hover:text-white"
-          >
-            <Settings
-              size={18}
-              className="shrink-0 text-emerald-400"
-            />
+        {/* Footer and logout */}
 
-            <span>Settings</span>
-          </Link>
+        <div className="mt-auto pb-2 pt-6">
+          <div className="mb-3 border-t border-emerald-700/40" />
 
-          {/* Logout Button */}
+          {/* Logout button */}
+
           <button
             type="button"
             onClick={handleOpenLogoutModal}
-            className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-emerald-100/80 transition hover:bg-white/10 hover:text-white"
+            className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-3.5 py-3 text-sm font-medium text-emerald-100/80 transition-all duration-200 hover:border-red-400/20 hover:bg-red-500/10 hover:text-white"
           >
             <LogOut
               size={18}
-              className="shrink-0 text-emerald-400"
+              className="shrink-0 text-emerald-400 transition group-hover:text-red-300"
             />
 
             <span>Log out</span>
@@ -326,7 +636,8 @@ export default function StudentSidebar() {
         </div>
       </aside>
 
-      {/* Logout Confirmation Modal */}
+      {/* Logout confirmation modal */}
+
       {showLogoutModal && (
         <div
           className="fixed inset-0 z-[100] flex min-h-screen items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
@@ -346,7 +657,8 @@ export default function StudentSidebar() {
             aria-describedby="logout-description"
             className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
           >
-            {/* Modal Header */}
+            {/* Modal header */}
+
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6 sm:py-5">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
@@ -365,14 +677,15 @@ export default function StudentSidebar() {
                 type="button"
                 onClick={handleCloseLogoutModal}
                 disabled={loggingOut}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label="Close"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <X size={19} />
               </button>
             </div>
 
-            {/* Modal Content */}
+            {/* Modal content */}
+
             <div className="px-5 py-5 sm:px-6 sm:py-6">
               <p
                 id="logout-description"
@@ -388,7 +701,8 @@ export default function StudentSidebar() {
               </p>
             </div>
 
-            {/* Modal Actions */}
+            {/* Modal actions */}
+
             <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
               <button
                 type="button"
@@ -408,6 +722,7 @@ export default function StudentSidebar() {
                 {loggingOut ? (
                   <>
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+
                     Logging out...
                   </>
                 ) : (

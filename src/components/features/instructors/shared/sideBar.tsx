@@ -1,3 +1,4 @@
+
 'use client'
 
 import React, { useEffect, useState } from 'react'
@@ -6,13 +7,13 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   Cloud,
   Users,
-  Star,
   User,
   Settings,
   LogOut,
   X,
   AlertTriangle,
   Menu,
+  Activity,
 } from 'lucide-react'
 import {
   onAuthStateChanged,
@@ -123,6 +124,8 @@ export default function Sidebar() {
     user?.providerData?.[0]?.email ||
     ''
 
+  // Navigation links
+  // Activity page added without removing existing pages.
   const navLinks = [
     {
       name: 'Dashboard',
@@ -133,6 +136,11 @@ export default function Sidebar() {
       name: 'Clearance Request',
       href: '/instructor/clearance',
       icon: Users,
+    },
+    {
+      name: 'Activity',
+      href: '/instructor/activity',
+      icon: Activity,
     },
     {
       name: 'Profile',
@@ -245,7 +253,10 @@ export default function Sidebar() {
           <nav className="space-y-2">
             {navLinks.map((link) => {
               const Icon = link.icon
-              const isActive = pathname === link.href
+
+              const isActive =
+                pathname === link.href ||
+                pathname.startsWith(`${link.href}/`)
 
               return (
                 <Link

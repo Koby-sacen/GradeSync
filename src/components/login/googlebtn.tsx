@@ -1,7 +1,12 @@
 
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 
 import {
   GoogleAuthProvider,
@@ -9,6 +14,7 @@ import {
   signInWithRedirect,
   getRedirectResult,
   type User,
+  type UserCredential,
 } from 'firebase/auth'
 
 import {
@@ -98,6 +104,115 @@ function getError(error: unknown): {
 }
 
 // --------------------------------------------------
+// GOOGLE ACCOUNT INFORMATION
+// --------------------------------------------------
+
+function getText(value: unknown): string {
+  return typeof value === 'string'
+    ? value.trim()
+    : ''
+}
+
+function getGoogleEmail(user: User): string {
+  const googleProvider = user.providerData.find(
+    (provider) => provider.providerId === 'google.com'
+  )
+
+  return (
+    getText(googleProvider?.email) ||
+    getText(user.email) ||
+    getText(
+      user.providerData.find(
+        (provider) => Boolean(provider.email)
+      )?.email
+    )
+  )
+}
+
+function getGoogleName(user: User): string {
+  const googleProvider = user.providerData.find(
+    (provider) => provider.providerId === 'google.com'
+  )
+
+  return (
+    getText(user.displayName) ||
+    getText(googleProvider?.displayName) ||
+    'Google User'
+  )
+}
+
+function getGooglePhoto(user: User): string {
+  const googleProvider = user.providerData.find(
+    (provider) => provider.providerId === 'google.com'
+  )
+
+  return (
+    getText(user.photoURL) ||
+    getText(googleProvider?.photoURL)
+  )
+}
+
+// --------------------------------------------------
+// EXTRACT EMAIL FROM GOOGLE ID TOKEN
+// --------------------------------------------------
+
+function getEmailFromGoogleCredential(
+  result: UserCredential
+): string {
+  try {
+    const credential =
+      GoogleAuthProvider.credentialFromResult(result)
+
+    if (!credential?.idToken) {
+      return ''
+    }
+
+    const tokenParts = credential.idToken.split('.')
+
+    if (tokenParts.length !== 3) {
+      return ''
+    }
+
+    const payload = tokenParts[1]
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+
+    const decoded = JSON.parse(
+      atob(payload)
+    ) as {
+      email?: string
+      email_verified?: boolean
+    }
+
+    // The token is issued by Google's sign-in flow.
+    // Firebase Authentication verifies the credential.
+    // This decode is used only to obtain the email,
+    // not as an independent authorization check.
+    return getText(decoded.email)
+  } catch (error) {
+    console.warn(
+      '[Google Auth] Could not extract email from Google credential:',
+      error
+    )
+
+    return ''
+  }
+}
+
+// --------------------------------------------------
+// RESOLVE AUTHENTICATED GOOGLE EMAIL
+// --------------------------------------------------
+
+function resolveGoogleEmail(
+  result: UserCredential
+): string {
+  return (
+    getGoogleEmail(result.user) ||
+    getEmailFromGoogleCredential(result)
+  )
+}
+
+// --------------------------------------------------
 // GOOGLE LOGIN BUTTON
 // --------------------------------------------------
 
@@ -115,7 +230,10 @@ export default function GoogleBtn() {
   // ------------------------------------------------
 
   const handleAuthenticatedUser = useCallback(
-    async (user: User) => {
+    async (
+      user: User,
+      credentialEmail?: string
+    ) => {
       if (completedUserRef.current === user.uid) return
 
       completedUserRef.current = user.uid
@@ -126,30 +244,107 @@ export default function GoogleBtn() {
 
         let userRole = 'student'
 
+        const googleEmail =
+          getText(credentialEmail) ||
+          getGoogleEmail(user)
+
+        const googleName = getGoogleName(user)
+        const googlePhoto = getGooglePhoto(user)
+
+        // --------------------------------------------
+        // VALIDATE EMAIL BEFORE ACCOUNT SYNCHRONIZATION
+        // --------------------------------------------
+
+        if (!googleEmail) {
+          console.warn(
+            '[Google Auth] No email returned by Firebase Auth or Google credential.'
+          )
+        }
+
+        // --------------------------------------------
+        // CREATE NEW USER DOCUMENT
+        // --------------------------------------------
+
         if (!userSnap.exists()) {
           await setDoc(userRef, {
             uid: user.uid,
-            fullName: user.displayName || 'Google User',
-            email: user.email || '',
+
+            fullName: googleName,
+            displayName: googleName,
+
+            email: googleEmail,
+
+            photoURL: googlePhoto,
+
             role: 'student',
+
             isInstructorVerified: false,
             verificationStatus: 'none',
+
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           })
+
+          console.info(
+            '[Google Auth] New user profile created in Firestore'
+          )
         } else {
+          // ------------------------------------------
+          // UPDATE EXISTING USER EMAIL
+          // ------------------------------------------
+
           const userData = userSnap.data()
 
           if (userData?.role) {
             userRole = userData.role
           }
 
-          // Preserve existing email synchronization.
-          if (user.email && userData?.email !== user.email) {
-            await updateDoc(userRef, {
-              email: user.email,
-              updatedAt: serverTimestamp(),
-            })
+          const storedEmail =
+            getText(userData?.email)
+
+          const updates: Record<string, unknown> = {}
+
+          // Synchronize the email when Google actually
+          // returned one. Never replace an existing
+          // email with an empty string.
+          if (
+            googleEmail &&
+            storedEmail !== googleEmail
+          ) {
+            updates.email = googleEmail
+          }
+
+          // Fill missing profile fields without
+          // overwriting changes made in Profile.
+          if (
+            !getText(userData?.fullName) &&
+            googleName
+          ) {
+            updates.fullName = googleName
+          }
+
+          if (
+            !getText(userData?.displayName) &&
+            googleName
+          ) {
+            updates.displayName = googleName
+          }
+
+          if (
+            !getText(userData?.photoURL) &&
+            googlePhoto
+          ) {
+            updates.photoURL = googlePhoto
+          }
+
+          if (Object.keys(updates).length > 0) {
+            updates.updatedAt = serverTimestamp()
+
+            await updateDoc(userRef, updates)
+
+            console.info(
+              '[Google Auth] Existing Firestore user profile synchronized'
+            )
           }
         }
 
@@ -158,11 +353,12 @@ export default function GoogleBtn() {
           {
             uid: user.uid,
             role: userRole,
+            emailRecorded: Boolean(googleEmail),
           }
         )
 
         // --------------------------------------------
-        // NEW: CREATE SECURE SERVER SESSION
+        // CREATE SECURE SERVER SESSION
         // --------------------------------------------
 
         // The server verifies the Firebase ID token,
@@ -193,7 +389,7 @@ export default function GoogleBtn() {
         playSound('success')
 
         toast.success(
-          `Welcome back, ${user.displayName || 'User'}!`,
+          `Welcome back, ${googleName}!`,
           {
             description: 'Redirecting to dashboard...',
           }
@@ -246,7 +442,13 @@ export default function GoogleBtn() {
           '[Google Auth] Redirect authentication succeeded'
         )
 
-        await handleAuthenticatedUser(result.user)
+        const googleEmail =
+          resolveGoogleEmail(result)
+
+        await handleAuthenticatedUser(
+          result.user,
+          googleEmail
+        )
       } catch (error: unknown) {
         if (!active) return
 
@@ -289,6 +491,10 @@ export default function GoogleBtn() {
     try {
       const provider = new GoogleAuthProvider()
 
+      // Request Google account email and profile.
+      provider.addScope('email')
+      provider.addScope('profile')
+
       provider.setCustomParameters({
         prompt: 'select_account',
       })
@@ -311,8 +517,15 @@ export default function GoogleBtn() {
       // Preserve the working Google popup flow on Chrome.
       const result = await signInWithPopup(auth, provider)
 
-      // NEW: Also creates the secure server session.
-      await handleAuthenticatedUser(result.user)
+      // Extract the authenticated Google account email.
+      const googleEmail =
+        resolveGoogleEmail(result)
+
+      // Create/update Firestore and server session.
+      await handleAuthenticatedUser(
+        result.user,
+        googleEmail
+      )
     } catch (error: unknown) {
       const err = getError(error)
 
