@@ -1,3 +1,4 @@
+
 'use client'
 
 import React, {
@@ -325,6 +326,7 @@ export default function StudentSidebar() {
   }
 
   const handleOpenLogoutModal = () => {
+    setSidebarOpen(false)
     setShowLogoutModal(true)
   }
 
@@ -419,7 +421,7 @@ export default function StudentSidebar() {
         aria-current={
           isActive ? 'page' : undefined
         }
-        className={`group flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 border ${
+        className={`group flex min-h-[44px] shrink-0 items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm font-medium transition-all duration-200 ${
           isActive
             ? 'border-emerald-500/30 bg-emerald-600/30 font-semibold text-white shadow-inner'
             : 'border-transparent text-emerald-100/80 hover:border-white/10 hover:bg-white/10 hover:text-white'
@@ -487,15 +489,16 @@ export default function StudentSidebar() {
       <aside
         id="student-sidebar"
         aria-label="Student sidebar"
-        className={`fixed inset-y-0 left-0 z-50 flex h-[100dvh] w-[280px] max-w-[85vw] flex-col overflow-y-auto bg-gradient-to-b from-emerald-900 to-teal-950 p-4 sm:p-5 text-white shadow-2xl transition-transform duration-300 ease-in-out lg:sticky lg:top-0 lg:z-30 lg:h-screen lg:w-64 lg:max-w-none lg:translate-x-0 lg:shadow-none ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-[100dvh] w-[280px] max-w-[85vw] flex-col overflow-hidden bg-gradient-to-b from-emerald-900 to-teal-950 text-white shadow-2xl transition-transform duration-300 ease-in-out lg:sticky lg:top-0 lg:z-30 lg:h-[100dvh] lg:w-64 lg:max-w-none lg:translate-x-0 lg:shadow-none ${
           sidebarOpen
             ? 'translate-x-0'
             : '-translate-x-full'
         }`}
       >
-        {/* Sidebar content */}
 
-        <div className="min-h-0">
+        {/* Fixed profile section */}
+
+        <div className="shrink-0 px-4 pt-4 sm:px-5 sm:pt-5">
 
           {/* Mobile sidebar header */}
 
@@ -549,7 +552,6 @@ export default function StudentSidebar() {
               {loading ? (
                 <>
                   <div className="mb-2 h-4 w-24 animate-pulse rounded bg-emerald-900/50" />
-
                   <div className="h-3 w-32 animate-pulse rounded bg-emerald-900/40" />
                 </>
               ) : (
@@ -568,10 +570,19 @@ export default function StudentSidebar() {
 
           {/* Profile divider */}
 
-          <div className="mb-3 border-t border-emerald-700/30" />
+          <div className="border-t border-emerald-700/30" />
+        </div>
 
-          {/* Grouped navigation */}
+        {/* Independently scrollable navigation */}
 
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5"
+          style={{
+            scrollbarWidth: 'thin',
+            scrollbarColor:
+              'rgba(110, 231, 183, 0.35) transparent',
+          }}
+        >
           <nav
             aria-label="Student navigation"
             className="space-y-5"
@@ -582,6 +593,7 @@ export default function StudentSidebar() {
                   key={section.title}
                   className="space-y-1"
                 >
+
                   {/* Section label */}
 
                   <div className="flex items-center gap-3 px-3.5 pb-1.5 pt-2">
@@ -614,17 +626,16 @@ export default function StudentSidebar() {
           </nav>
         </div>
 
-        {/* Footer and logout */}
+        {/* Fixed logout footer */}
 
-        <div className="mt-auto pb-2 pt-6">
-          <div className="mb-3 border-t border-emerald-700/40" />
+        <div className="z-10 shrink-0 border-t border-emerald-700/40 bg-teal-950/40 px-4 pb-4 pt-3 sm:px-5">
 
           {/* Logout button */}
 
           <button
             type="button"
             onClick={handleOpenLogoutModal}
-            className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-3.5 py-3 text-sm font-medium text-emerald-100/80 transition-all duration-200 hover:border-red-400/20 hover:bg-red-500/10 hover:text-white"
+            className="group flex min-h-[44px] w-full shrink-0 items-center gap-3 rounded-xl border border-transparent px-3.5 py-3 text-sm font-medium text-emerald-100/80 transition-all duration-200 hover:border-red-400/20 hover:bg-red-500/10 hover:text-white"
           >
             <LogOut
               size={18}
@@ -657,6 +668,7 @@ export default function StudentSidebar() {
             aria-describedby="logout-description"
             className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
           >
+
             {/* Modal header */}
 
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6 sm:py-5">
@@ -722,7 +734,6 @@ export default function StudentSidebar() {
                 {loggingOut ? (
                   <>
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-
                     Logging out...
                   </>
                 ) : (
