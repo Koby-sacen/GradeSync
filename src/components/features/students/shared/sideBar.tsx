@@ -373,7 +373,7 @@ export default function StudentSidebar() {
     null
 
   const displayName =
-    getText(dbUserData?.fullName) ||
+    getText(dbUserData?.displayName) ||
     getText(dbUserData?.displayName) ||
     getText(dbUserData?.name) ||
     getText(user?.displayName) ||

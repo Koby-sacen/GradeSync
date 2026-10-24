@@ -79,7 +79,7 @@ interface ActivityRecord {
 
 interface StudentClearance {
   id: string
-  source: 'requests' | 'clearances'
+  source: 'requests'
   studentUid: string
   studentName: string
   yearAndSection: string
@@ -225,16 +225,16 @@ function mapActivity(
   }
 }
 
-function mapClearance(
+// Clearance information comes ONLY from requests.
+function mapRequest(
   id: string,
-  source: 'requests' | 'clearances',
   data: DocumentData
 ): StudentClearance {
   const form = object(data.formData)
 
   return {
     id,
-    source,
+    source: 'requests',
     studentUid: text(data.studentUid),
     studentName: firstText(
       data.studentName,
@@ -295,8 +295,11 @@ function isStudentAction(activity: ActivityRecord): boolean {
 function getSubjectLabel(activity: ActivityRecord): string {
   const { subjectName, subjectCode } = activity
 
-  if (subjectName && subjectCode &&
-    subjectName.toLowerCase() !== subjectCode.toLowerCase()) {
+  if (
+    subjectName &&
+    subjectCode &&
+    subjectName.toLowerCase() !== subjectCode.toLowerCase()
+  ) {
     return `"${subjectName}" (${subjectCode})`
   }
 
@@ -309,21 +312,27 @@ function getIcon(action: string) {
   if (['subject_added', 'subject_created'].includes(action)) {
     return PlusCircle
   }
+
   if (['subject_deleted', 'subject_removed'].includes(action)) {
     return Trash2
   }
+
   if (['subject_updated', 'subject_edited'].includes(action)) {
     return Pencil
   }
+
   if (action.includes('grade')) return GraduationCap
   if (action.includes('share')) return Share2
   if (action.includes('signature')) return PenTool
+
   if (action.includes('approved') || action.includes('reviewed')) {
     return CheckCircle2
   }
+
   if (action.includes('document') || action.includes('clearance')) {
     return FileText
   }
+
   return Activity
 }
 
@@ -355,16 +364,13 @@ export default function ActivityPage() {
 
   const [activities, setActivities] = useState<ActivityRecord[]>([])
   const [requests, setRequests] = useState<StudentClearance[]>([])
-  const [clearanceDocuments, setClearanceDocuments] = useState<StudentClearance[]>([])
   const [instructorNames, setInstructorNames] = useState<Record<string, string>>({})
 
   const [activityLoading, setActivityLoading] = useState(true)
   const [requestsLoading, setRequestsLoading] = useState(true)
-  const [documentsLoading, setDocumentsLoading] = useState(true)
 
   const [activityError, setActivityError] = useState('')
   const [requestError, setRequestError] = useState('')
-  const [documentError, setDocumentError] = useState('')
 
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<ActivityFilter>('all')
@@ -373,6 +379,7 @@ export default function ActivityPage() {
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<ActivityRecord | null>(null)
 
+  // Authentication listener
   useEffect(() => {
     return onAuthStateChanged(
       auth,
@@ -380,14 +387,11 @@ export default function ActivityPage() {
         setCurrentUser(user)
         setActivities([])
         setRequests([])
-        setClearanceDocuments([])
         setInstructorNames({})
         setActivityError('')
         setRequestError('')
-        setDocumentError('')
         setActivityLoading(Boolean(user))
         setRequestsLoading(Boolean(user))
-        setDocumentsLoading(Boolean(user))
         setSelected(null)
         setPage(1)
         setAuthLoading(false)
@@ -397,25 +401,21 @@ export default function ActivityPage() {
         setCurrentUser(null)
         setActivities([])
         setRequests([])
-        setClearanceDocuments([])
+        setInstructorNames({})
         setActivityLoading(false)
         setRequestsLoading(false)
-        setDocumentsLoading(false)
         setActivityError('Unable to verify your account.')
         setAuthLoading(false)
       }
     )
   }, [])
 
+  // Listen to activities and requests only.
   useEffect(() => {
     if (!currentUser) return
 
     const uid = currentUser.uid
 
-    // Exactly like the instructor logger:
-    // listen to real documents in the activities collection.
-    // studentUid also includes instructor actions affecting
-    // this student, when those actions are logged correctly.
     const stopActivities = onSnapshot(
       query(
         collection(db, 'activities'),
@@ -427,7 +427,9 @@ export default function ActivityPage() {
         )
 
         records.sort(
-          (a, b) => getTimestamp(b.createdAt) - getTimestamp(a.createdAt)
+          (a, b) =>
+            getTimestamp(b.createdAt) -
+            getTimestamp(a.createdAt)
         )
 
         setActivities(records)
@@ -449,9 +451,11 @@ export default function ActivityPage() {
         where('studentUid', '==', uid)
       ),
       (snapshot) => {
-        setRequests(snapshot.docs.map((item) =>
-          mapClearance(item.id, 'requests', item.data())
-        ))
+        setRequests(
+          snapshot.docs.map((item) =>
+            mapRequest(item.id, item.data())
+          )
+        )
         setRequestsLoading(false)
         setRequestError('')
       },
@@ -462,36 +466,14 @@ export default function ActivityPage() {
       }
     )
 
-    const stopClearances = onSnapshot(
-      query(
-        collection(db, 'clearances'),
-        where('studentUid', '==', uid)
-      ),
-      (snapshot) => {
-        setClearanceDocuments(snapshot.docs.map((item) =>
-          mapClearance(item.id, 'clearances', item.data())
-        ))
-        setDocumentsLoading(false)
-        setDocumentError('')
-      },
-      (error) => {
-        console.error('Clearances listener:', error)
-        setDocumentError('Unable to load clearance documents.')
-        setDocumentsLoading(false)
-      }
-    )
-
     return () => {
       stopActivities()
       stopRequests()
-      stopClearances()
     }
   }, [currentUser])
 
-  const clearances = useMemo(
-    () => [...requests, ...clearanceDocuments],
-    [requests, clearanceDocuments]
-  )
+  // All clearance records now originate from requests.
+  const clearances = requests
 
   const instructorUids = useMemo(
     () => Array.from(new Set(
@@ -507,6 +489,7 @@ export default function ActivityPage() {
 
   const instructorUidKey = instructorUids.join('|')
 
+  // Resolve instructor names without synchronous setState in an effect.
   useEffect(() => {
     if (!currentUser || !instructorUidKey) return
 
@@ -521,7 +504,8 @@ export default function ActivityPage() {
               uid,
               snapshot.exists() ? profileName(snapshot.data()) : '',
             ] as const
-          } catch {
+          } catch (error) {
+            console.error('Unable to fetch instructor:', uid, error)
             return [uid, ''] as const
           }
         })
@@ -561,8 +545,8 @@ export default function ActivityPage() {
     return firstText(
       instructorNames[activity.recipientUid],
       activity.recipientName,
-      clearance?.instructorName,
       activity.recipientEmail,
+      clearance?.instructorName,
       clearance?.sharedWithEmail,
       'an instructor'
     )
@@ -573,10 +557,6 @@ export default function ActivityPage() {
     const person = actorName(activity)
     const subject = getSubjectLabel(activity)
     const subjectText = subject ? `subject ${subject}` : 'a subject'
-    const own = isStudentAction(activity)
-
-    // When an older record contains a specific description,
-    // preserve it rather than discarding its details.
     const recorded = activity.description
 
     switch (action) {
@@ -598,10 +578,11 @@ export default function ActivityPage() {
           `${person} updated ${subjectText} in your clearance.`
 
       case 'clearance_shared':
-        return own
-          ? `You shared your clearance with ${recipientName(activity)}.`
-          : recorded ||
-            `${person} shared your clearance with ${recipientName(activity)}.`
+        // Preserve the instructor named when the activity was recorded.
+        return recorded ||
+          (isStudentAction(activity)
+            ? `You shared your clearance with ${recipientName(activity)}.`
+            : `${person} shared your clearance with ${recipientName(activity)}.`)
 
       case 'clearance_created':
         return recorded || `${person} created your clearance.`
@@ -672,68 +653,56 @@ export default function ActivityPage() {
     }
   }
 
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase()
+  const filtered = activities
+    .filter((activity) => {
+      if (filter !== 'all' && activity.category !== filter) {
+        return false
+      }
 
-    return activities
-      .filter((activity) => {
-        if (filter !== 'all' && activity.category !== filter) {
-          return false
-        }
+      if (
+        actorFilter === 'student' &&
+        !isStudentAction(activity)
+      ) return false
 
-        if (
-          actorFilter === 'student' &&
-          !isStudentAction(activity)
-        ) return false
+      if (
+        actorFilter === 'instructor' &&
+        isStudentAction(activity)
+      ) return false
 
-        if (
-          actorFilter === 'instructor' &&
-          isStudentAction(activity)
-        ) return false
+      const term = search.trim().toLowerCase()
+      if (!term) return true
 
-        if (!term) return true
-
-        const clearance = clearances.find(
-          (item) => item.id === activity.clearanceId
-        )
-
-        const searchable = [
-          activity.action,
-          getTitle(activity.action),
-          description(activity),
-          activity.description,
-          activity.actorName,
-          activity.actorEmail,
-          activity.studentName,
-          activity.subjectCode,
-          activity.subjectName,
-          activity.recipientName,
-          activity.recipientEmail,
-          activity.documentName,
-          activity.oldValue,
-          activity.newValue,
-          activity.changedField,
-          clearance?.yearAndSection,
-          formatDate(activity.createdAt),
-        ].join(' ').toLowerCase()
-
-        return searchable.includes(term)
-      })
-      .sort((a, b) =>
-        sort === 'newest'
-          ? getTimestamp(b.createdAt) - getTimestamp(a.createdAt)
-          : getTimestamp(a.createdAt) - getTimestamp(b.createdAt)
+      const clearance = clearances.find(
+        (item) => item.id === activity.clearanceId
       )
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    activities,
-    filter,
-    actorFilter,
-    search,
-    sort,
-    clearances,
-    instructorNames,
-  ])
+
+      const searchable = [
+        activity.action,
+        getTitle(activity.action),
+        description(activity),
+        activity.description,
+        activity.actorName,
+        activity.actorEmail,
+        activity.studentName,
+        activity.subjectCode,
+        activity.subjectName,
+        activity.recipientName,
+        activity.recipientEmail,
+        activity.documentName,
+        activity.oldValue,
+        activity.newValue,
+        activity.changedField,
+        clearance?.yearAndSection,
+        formatDate(activity.createdAt),
+      ].join(' ').toLowerCase()
+
+      return searchable.includes(term)
+    })
+    .sort((a, b) =>
+      sort === 'newest'
+        ? getTimestamp(b.createdAt) - getTimestamp(a.createdAt)
+        : getTimestamp(a.createdAt) - getTimestamp(b.createdAt)
+    )
 
   const stats = {
     total: activities.length,
@@ -770,15 +739,14 @@ export default function ActivityPage() {
     safePage * ITEMS_PER_PAGE
   )
 
-  const loading = authLoading ||
+  const loading =
+    authLoading ||
     activityLoading ||
-    requestsLoading ||
-    documentsLoading
+    requestsLoading
 
   const errors = [
     activityError,
     requestError,
-    documentError,
   ].filter(Boolean)
 
   if (authLoading) {
@@ -805,6 +773,7 @@ export default function ActivityPage() {
     <div className="min-h-screen bg-slate-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
 
+        {/* Header */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center">
@@ -822,56 +791,53 @@ export default function ActivityPage() {
           </div>
         </div>
 
+        {/* Primary statistics */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
+          {([
             ['Total Activities', stats.total, Activity],
             ['Clearance Activities', stats.clearances, FileText],
             ['Signature Activities', stats.signatures, PenTool],
             ['Review Activities', stats.reviewed, CheckCircle2],
-          ].map(([label, value, Icon]) => {
-            const StatIcon = Icon as typeof Activity
-            return (
-              <div
-                key={label as string}
-                className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm"
-              >
-                <div className="flex justify-between items-start">
-                  <p className="text-xs text-slate-500">{label as string}</p>
-                  <StatIcon className="w-5 h-5 text-emerald-700" />
-                </div>
-                <p className="text-3xl font-bold text-slate-900 mt-3">
-                  {value as number}
-                </p>
+          ] as const).map(([label, value, StatIcon]) => (
+            <div
+              key={label}
+              className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm"
+            >
+              <div className="flex justify-between items-start">
+                <p className="text-xs text-slate-500">{label}</p>
+                <StatIcon className="w-5 h-5 text-emerald-700" />
               </div>
-            )
-          })}
+              <p className="text-3xl font-bold text-slate-900 mt-3">
+                {value}
+              </p>
+            </div>
+          ))}
         </div>
 
+        {/* Additional statistics */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
+          {([
             ['My Actions', stats.mine, UserRound],
             ['Instructor Actions', stats.instructors, PenTool],
             ['Subjects Added', stats.added, PlusCircle],
             ['Subjects Deleted', stats.deleted, Trash2],
-          ].map(([label, value, Icon]) => {
-            const StatIcon = Icon as typeof Activity
-            return (
-              <div
-                key={label as string}
-                className="bg-white border border-slate-200 rounded-2xl p-5"
-              >
-                <div className="flex justify-between gap-2">
-                  <p className="text-xs text-slate-500">{label as string}</p>
-                  <StatIcon className="w-4 h-4 text-slate-500" />
-                </div>
-                <p className="text-2xl font-bold text-slate-900 mt-2">
-                  {value as number}
-                </p>
+          ] as const).map(([label, value, StatIcon]) => (
+            <div
+              key={label}
+              className="bg-white border border-slate-200 rounded-2xl p-5"
+            >
+              <div className="flex justify-between gap-2">
+                <p className="text-xs text-slate-500">{label}</p>
+                <StatIcon className="w-4 h-4 text-slate-500" />
               </div>
-            )
-          })}
+              <p className="text-2xl font-bold text-slate-900 mt-2">
+                {value}
+              </p>
+            </div>
+          ))}
         </div>
 
+        {/* Clearance status from requests only */}
         {clearances.length > 0 && (
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
@@ -884,16 +850,18 @@ export default function ActivityPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {clearances.map((clearance) => (
                 <div
-                  key={`${clearance.source}:${clearance.id}`}
+                  key={`requests:${clearance.id}`}
                   className="flex justify-between items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200"
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900">
                       {clearance.studentName || 'Student Clearance'}
                     </p>
+
                     <p className="text-xs text-slate-500 mt-1">
                       {clearance.yearAndSection || 'No section'}
                     </p>
+
                     {(clearance.instructorName || clearance.sharedWithEmail) && (
                       <p className="text-xs text-slate-500 mt-1 break-words">
                         Shared with: {clearance.instructorName ||
@@ -901,6 +869,7 @@ export default function ActivityPage() {
                       </p>
                     )}
                   </div>
+
                   <span className="shrink-0 text-xs font-semibold px-3 py-1 bg-white border border-slate-200 rounded-full">
                     {clearance.status}
                   </span>
@@ -910,15 +879,18 @@ export default function ActivityPage() {
           </div>
         )}
 
+        {/* Activity history */}
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
           <div className="p-5 sm:p-6 border-b border-slate-100">
             <h2 className="text-lg font-bold text-slate-900">
               Recent Activities
             </h2>
+
             <p className="text-sm text-slate-500 mt-1">
               Each entry comes from an actual Firestore activity record.
             </p>
 
+            {/* Search and sort */}
             <div className="flex flex-col md:flex-row gap-3 mt-5">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -948,6 +920,7 @@ export default function ActivityPage() {
               </button>
             </div>
 
+            {/* Actor filters */}
             <div className="flex flex-wrap gap-2 mt-4">
               {([
                 ['all', 'Everyone'],
@@ -972,6 +945,7 @@ export default function ActivityPage() {
               ))}
             </div>
 
+            {/* Category filters */}
             <div className="flex items-center gap-2 overflow-x-auto mt-4 pb-1">
               <Filter className="w-4 h-4 shrink-0 text-slate-400" />
               {([
@@ -1000,6 +974,7 @@ export default function ActivityPage() {
             </div>
           </div>
 
+          {/* Firestore errors */}
           {errors.length > 0 && (
             <div className="m-5 p-4 bg-red-50 border border-red-200 rounded-xl">
               <div className="flex gap-2">
@@ -1015,6 +990,7 @@ export default function ActivityPage() {
             </div>
           )}
 
+          {/* Loading, empty state, or activity records */}
           {loading ? (
             <div className="py-20 text-center">
               <RefreshCw className="w-7 h-7 animate-spin text-emerald-600 mx-auto" />
@@ -1028,11 +1004,13 @@ export default function ActivityPage() {
               <h3 className="font-semibold text-slate-900 mt-4">
                 No Activities Found
               </h3>
+
               <p className="text-sm text-slate-500 mt-2">
                 {search || filter !== 'all' || actorFilter !== 'all'
                   ? 'No activity records match your filters.'
                   : 'No activity documents have been recorded for your account yet.'}
               </p>
+
               {(search || filter !== 'all' || actorFilter !== 'all') && (
                 <button
                   type="button"
@@ -1125,6 +1103,7 @@ export default function ActivityPage() {
             </div>
           )}
 
+          {/* Pagination */}
           {!loading && filtered.length > 0 && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-5 border-t border-slate-100">
               <p className="text-xs text-slate-500">
@@ -1160,6 +1139,7 @@ export default function ActivityPage() {
           )}
         </div>
 
+        {/* Activity details modal */}
         {selected && (
           <div
             className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm flex items-center justify-center p-4"
@@ -1176,6 +1156,7 @@ export default function ActivityPage() {
                 <h2 className="text-lg font-bold text-slate-900">
                   Activity Details
                 </h2>
+
                 <button
                   type="button"
                   onClick={() => setSelected(null)}
@@ -1195,17 +1176,18 @@ export default function ActivityPage() {
                   {description(selected)}
                 </p>
 
-                {[
+                {([
                   ['Date and Time', formatFullDate(selected.createdAt)],
                   ['Performed By', actorName(selected)],
                   ['Status', selected.status],
                   ['Category', selected.category],
                   ['Student', selected.studentName],
                   ['Subject', getSubjectLabel(selected)],
-                  ['Recipient',
+                  [
+                    'Recipient',
                     selected.action.includes('shared')
                       ? recipientName(selected)
-                      : ''
+                      : '',
                   ],
                   ['Document', selected.documentName],
                   ['Changed Field', selected.changedField],
@@ -1214,17 +1196,19 @@ export default function ActivityPage() {
                   ['Clearance ID', selected.clearanceId],
                   ['Signature ID', selected.signatureId],
                   ['Original Description', selected.description],
-                ].filter(([, value]) => value).map(([label, value]) => (
-                  <div
-                    key={label}
-                    className="border-b border-slate-100 pb-3"
-                  >
-                    <p className="text-xs text-slate-500">{label}</p>
-                    <p className="text-sm font-medium text-slate-800 mt-1 break-words">
-                      {value}
-                    </p>
-                  </div>
-                ))}
+                ] as [string, string][])
+                  .filter(([, value]) => Boolean(value))
+                  .map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="border-b border-slate-100 pb-3"
+                    >
+                      <p className="text-xs text-slate-500">{label}</p>
+                      <p className="text-sm font-medium text-slate-800 mt-1 break-words">
+                        {value}
+                      </p>
+                    </div>
+                  ))}
               </div>
 
               <div className="p-5 bg-slate-50 flex justify-end">

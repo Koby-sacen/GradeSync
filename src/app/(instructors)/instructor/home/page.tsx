@@ -108,7 +108,7 @@ export default function InstructorHomePage() {
             matchedRequests.push({
               id: docSnap.id,
               studentUid: data.studentUid || '',
-              studentName: data.studentName || 'Unnamed Student',
+              studentName: data.displayName || 'Unnamed Student',
               yearAndSection: data.yearAndSection || '',
               studentId: data.studentId || '',
               studentEmail: data.studentEmail || '',

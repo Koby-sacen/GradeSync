@@ -1134,10 +1134,11 @@ export default function Page() {
       .slice(0, 5)
   }, [activities])
 
+  
   const displayName = useMemo(() => {
     const profileName =
-      profile?.fullName ||
       profile?.displayName ||
+      profile?.fullName ||
       [
         profile?.firstName,
         profile?.lastName,
@@ -1152,6 +1153,7 @@ export default function Page() {
       'Student'
     )
   }, [profile, user])
+
 
   const studentEmail = useMemo(() => {
     return resolveStudentEmail(user, profile)
