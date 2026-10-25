@@ -1,3 +1,4 @@
+
 'use client'
 
 import Link from 'next/link'
@@ -59,8 +60,21 @@ export default function Page() {
           <div className="relative z-10 my-12">
             <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight leading-tight text-white drop-shadow-md">
               Hello, <br />
-              welcome!
+              welcome to GradeSync!
             </h1>
+
+            {/* GradeSync Tagline */}
+            <div className="mt-5 mb-5">
+              <div className="w-12 h-1 bg-emerald-400 rounded-full mb-4" />
+              <h2 className="text-xl sm:text-2xl font-bold tracking-tight leading-snug text-white drop-shadow-md">
+                No Distance. No Delays.
+                <br />
+                <span className="text-emerald-300">
+                  Just GradeSync.
+                </span>
+              </h2>
+            </div>
+
             <p className="mt-4 text-sm sm:text-base text-slate-200 max-w-md leading-relaxed drop-shadow-md">
               Sign in to access your Digital Office account, track grade requests, and manage clearance documents.
             </p>
