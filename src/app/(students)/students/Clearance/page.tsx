@@ -66,8 +66,8 @@ interface ActivityToRecord {
 const INITIAL_SUBJECTS: SubjectRow[] = [
   {
     id: '1',
-    code: 'DA 101',
-    description: 'Data Analytics',
+    code: '',
+    description: '',
     grades: '',
     remarks: '',
     signature: '',
@@ -76,8 +76,8 @@ const INITIAL_SUBJECTS: SubjectRow[] = [
   },
   {
     id: '2',
-    code: 'STAT 101',
-    description: 'Statistics Essential for Analytics',
+    code: '',
+    description: '',
     grades: '',
     remarks: '',
     signature: '',
@@ -86,8 +86,8 @@ const INITIAL_SUBJECTS: SubjectRow[] = [
   },
   {
     id: '3',
-    code: 'ADV 10',
-    description: 'Business Intelligence',
+    code: '',
+    description: '',
     grades: '',
     remarks: '',
     signature: '',
@@ -96,8 +96,8 @@ const INITIAL_SUBJECTS: SubjectRow[] = [
   },
   {
     id: '4',
-    code: 'IS 106',
-    description: 'IS Project Management 1',
+    code: '',
+    description: '',
     grades: '',
     remarks: '',
     signature: '',
@@ -106,8 +106,8 @@ const INITIAL_SUBJECTS: SubjectRow[] = [
   },
   {
     id: '5',
-    code: 'QUAMET',
-    description: 'QUANTITATIVE METHODS',
+    code: '',
+    description: '',
     grades: '',
     remarks: '',
     signature: '',
@@ -328,6 +328,7 @@ export default function Page() {
   const operationInProgressRef =
     useRef(false)
 
+  
   const fetchInstructorsList = async () => {
     try {
       const querySnapshot = await getDocs(
@@ -344,20 +345,41 @@ export default function Page() {
           : ''
 
         if (role === 'instructor') {
+          const displayName =
+            typeof data.displayName === 'string'
+              ? data.displayName.trim()
+              : ''
+
+          const fullName =
+            typeof data.fullName === 'string'
+              ? data.fullName.trim()
+              : ''
+
+          const name =
+            typeof data.name === 'string'
+              ? data.name.trim()
+              : ''
+
+          const email =
+            typeof data.email === 'string'
+              ? data.email.trim()
+              : ''
+
           fetched.push({
             id: docSnap.id,
             name:
-              data.fullName ||
-              data.name ||
-              data.displayName ||
+              displayName ||
+              fullName ||
+              name ||
               'Unnamed Instructor',
-            email:
-              data.email && data.email !== ''
-                ? data.email
-                : 'No email provided',
+            email: email || 'No email provided',
           })
         }
       })
+
+      fetched.sort((a, b) =>
+        a.name.localeCompare(b.name)
+      )
 
       setInstructors(fetched)
     } catch (error) {
@@ -367,6 +389,7 @@ export default function Page() {
       )
     }
   }
+
 
   useEffect(() => {
     let active = true
@@ -1185,7 +1208,7 @@ export default function Page() {
                 }
                 suppressHydrationWarning
                 className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 placeholder:text-slate-300 print:border-none print:shadow-none print:outline-none"
-                placeholder="e.g., 4B - BSIS"
+                placeholder="e.g., BSIS - 4B"
               />
             </div>
 
@@ -1214,7 +1237,7 @@ export default function Page() {
                 }
                 suppressHydrationWarning
                 className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 placeholder:text-slate-300 print:border-none print:shadow-none print:outline-none"
-                placeholder="e.g., 2021-00123"
+                placeholder="e.g., 234157"
               />
             </div>
 
@@ -1312,7 +1335,7 @@ export default function Page() {
                         }
                         suppressHydrationWarning
                         className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 print:border-none print:bg-transparent print:p-0"
-                        placeholder="Description"
+                        placeholder=" e.g., Software Engineering"
                       />
                     </td>
 
@@ -1515,7 +1538,7 @@ export default function Page() {
         <div className="mt-12 text-xs text-slate-500 text-center print:mt-16">
           <p>
             This is an official clearance document
-            generated via the Student Portal.
+            generated via GradeSync Student Portal.
           </p>
         </div>
       </div>

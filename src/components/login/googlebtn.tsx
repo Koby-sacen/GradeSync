@@ -590,6 +590,7 @@ export default function GoogleBtn() {
 
   return (
     <button
+      suppressHydrationWarning
       type="button"
       onClick={handleGoogleSignIn}
       disabled={loading}

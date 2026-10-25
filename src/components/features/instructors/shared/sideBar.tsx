@@ -1,9 +1,15 @@
 
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, {
+  useEffect,
+  useState,
+  type ComponentType,
+} from 'react'
+
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+
 import {
   Cloud,
   Users,
@@ -14,82 +20,323 @@ import {
   AlertTriangle,
   Menu,
   Activity,
+  Bell,
+  Megaphone,
+  MessageSquare,
+  ChevronRight,
 } from 'lucide-react'
+
 import {
   onAuthStateChanged,
   signOut,
-  User as FirebaseUser,
+  type User as FirebaseUser,
 } from 'firebase/auth'
-import { auth } from '@/lib/firebase'
+
+import {
+  doc,
+  onSnapshot,
+} from 'firebase/firestore'
+
+import { auth, db } from '@/lib/firebase'
+
+// Types
+
+interface InstructorUserData {
+  fullName?: string
+  displayName?: string
+  name?: string
+  email?: string
+  instructorEmail?: string
+  photoURL?: string
+}
+
+interface NavigationLink {
+  name: string
+  href: string
+  icon: ComponentType<{
+    size?: number
+    className?: string
+  }>
+}
+
+interface NavigationSection {
+  title: string
+  links: NavigationLink[]
+}
+
+// Navigation sections
+
+const navigationSections: NavigationSection[] = [
+  {
+    title: 'MAIN',
+    links: [
+      {
+        name: 'Dashboard',
+        href: '/instructor/home',
+        icon: Cloud,
+      },
+      {
+        name: 'Clearance Request',
+        href: '/instructor/clearance',
+        icon: Users,
+      },
+      {
+        name: 'Activity',
+        href: '/instructor/activity',
+        icon: Activity,
+      },
+    ],
+  },
+  {
+    title: 'COMMUNICATIONS',
+    links: [
+      {
+        name: 'Notifications',
+        href: '/instructor/Notifications',
+        icon: Bell,
+      },
+      {
+        name: 'Announcements',
+        href: '/instructor/Announcements',
+        icon: Megaphone,
+      },
+    ],
+  },
+  {
+    title: 'HELP',
+    links: [
+      {
+        name: 'Feedback & Support',
+        href: '/instructor/Feedback&Support',
+        icon: MessageSquare,
+      },
+    ],
+  },
+  {
+    title: 'ACCOUNT',
+    links: [
+      {
+        name: 'Profile',
+        href: '/instructor/profile',
+        icon: User,
+      },
+      {
+        name: 'Settings',
+        href: '/instructor/settings',
+        icon: Settings,
+      },
+    ],
+  },
+]
+
+// Helpers
+
+function getText(value: unknown): string {
+  return typeof value === 'string'
+    ? value.trim()
+    : ''
+}
+
+function getGoogleProvider(
+  user: FirebaseUser | null
+) {
+  if (!user) return null
+
+  return (
+    user.providerData.find(
+      (provider) =>
+        provider.providerId === 'google.com'
+    ) || null
+  )
+}
+
+// Instructor Sidebar
 
 export default function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
 
-  const [user, setUser] = useState<FirebaseUser | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [imageError, setImageError] = useState(false)
+  const [user, setUser] =
+    useState<FirebaseUser | null>(null)
 
-  const [showLogoutModal, setShowLogoutModal] = useState(false)
-  const [loggingOut, setLoggingOut] = useState(false)
+  const [dbUserData, setDbUserData] =
+    useState<InstructorUserData | null>(null)
 
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [loading, setLoading] =
+    useState(true)
+
+  const [imageError, setImageError] =
+    useState(false)
+
+  const [showLogoutModal, setShowLogoutModal] =
+    useState(false)
+
+  const [loggingOut, setLoggingOut] =
+    useState(false)
+
+  const [sidebarOpen, setSidebarOpen] =
+    useState(false)
+
+  // Firebase authentication and live profile
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser)
-      setLoading(false)
-      setImageError(false)
-    })
+    let active = true
 
-    return () => unsubscribe()
-  }, [])
+    let unsubscribeProfile:
+      | (() => void)
+      | null = null
 
-  const handleCloseLogoutModal = () => {
-    if (loggingOut) return
-    setShowLogoutModal(false)
-  }
+    const unsubscribeAuth = onAuthStateChanged(
+      auth,
+      (currentUser) => {
+        if (!active) return
 
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (showLogoutModal && !loggingOut) {
-          setShowLogoutModal(false)
+        if (unsubscribeProfile) {
+          unsubscribeProfile()
+          unsubscribeProfile = null
+        }
+
+        setUser(currentUser)
+        setDbUserData(null)
+        setImageError(false)
+
+        if (!currentUser) {
+          setLoading(false)
           return
         }
 
-        if (sidebarOpen) {
-          setSidebarOpen(false)
-        }
+        setLoading(true)
+
+        const userRef = doc(
+          db,
+          'users',
+          currentUser.uid
+        )
+
+        unsubscribeProfile = onSnapshot(
+          userRef,
+          (snapshot) => {
+            if (!active) return
+
+            if (snapshot.exists()) {
+              setDbUserData(
+                snapshot.data() as InstructorUserData
+              )
+            } else {
+              setDbUserData(null)
+            }
+
+            setLoading(false)
+          },
+          (error) => {
+            console.error(
+              '[Instructor Sidebar] Profile listener error:',
+              error
+            )
+
+            if (!active) return
+
+            setDbUserData(null)
+            setLoading(false)
+          }
+        )
+      }
+    )
+
+    return () => {
+      active = false
+      unsubscribeAuth()
+
+      if (unsubscribeProfile) {
+        unsubscribeProfile()
+      }
+    }
+  }, [])
+
+  // Escape key support
+
+  useEffect(() => {
+    const handleEscape = (
+      event: KeyboardEvent
+    ) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      if (showLogoutModal && !loggingOut) {
+        setShowLogoutModal(false)
+        return
+      }
+
+      if (sidebarOpen) {
+        setSidebarOpen(false)
       }
     }
 
-    document.addEventListener('keydown', handleEscape)
+    document.addEventListener(
+      'keydown',
+      handleEscape
+    )
 
     return () => {
-      document.removeEventListener('keydown', handleEscape)
+      document.removeEventListener(
+        'keydown',
+        handleEscape
+      )
     }
-  }, [showLogoutModal, loggingOut, sidebarOpen])
+  }, [
+    showLogoutModal,
+    loggingOut,
+    sidebarOpen,
+  ])
+
+  // Prevent background scrolling
 
   useEffect(() => {
-    if (sidebarOpen || showLogoutModal) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
+    if (!sidebarOpen && !showLogoutModal) {
+      return
     }
 
+    const previousOverflow =
+      document.body.style.overflow
+
+    document.body.style.overflow = 'hidden'
+
     return () => {
-      document.body.style.overflow = ''
+      document.body.style.overflow =
+        previousOverflow
     }
-  }, [sidebarOpen, showLogoutModal])
+  }, [
+    sidebarOpen,
+    showLogoutModal,
+  ])
+
+  // Navigation handlers
 
   const handleNavigation = () => {
     setSidebarOpen(false)
   }
 
+  const handleOpenSidebar = () => {
+    setSidebarOpen(true)
+  }
+
+  const handleCloseSidebar = () => {
+    setSidebarOpen(false)
+  }
+
   const handleOpenLogoutModal = () => {
+    setSidebarOpen(false)
     setShowLogoutModal(true)
   }
+
+  const handleCloseLogoutModal = () => {
+    if (loggingOut) return
+
+    setShowLogoutModal(false)
+  }
+
+  // Logout
 
   const handleLogOut = async () => {
     if (loggingOut) return
@@ -102,115 +349,190 @@ export default function Sidebar() {
       setShowLogoutModal(false)
       setSidebarOpen(false)
 
-      router.push('/login')
+      router.replace('/login')
     } catch (error) {
-      console.error('Logout error:', error)
+      console.error(
+        '[Instructor Sidebar] Logout error:',
+        error
+      )
+
       setLoggingOut(false)
     }
   }
 
+  // Google account information
+
+  const googleProvider =
+    getGoogleProvider(user)
+
   const photoURL =
-    user?.photoURL ||
-    user?.providerData?.[0]?.photoURL ||
+    getText(dbUserData?.photoURL) ||
+    getText(user?.photoURL) ||
+    getText(googleProvider?.photoURL) ||
+    getText(user?.providerData?.[0]?.photoURL) ||
     null
 
+  // Firestore displayName is the primary instructor name
+
   const displayName =
-    user?.displayName ||
-    user?.providerData?.[0]?.displayName ||
+    getText(dbUserData?.displayName) ||
+    getText(dbUserData?.fullName) ||
+    getText(dbUserData?.name) ||
+    getText(user?.displayName) ||
+    getText(googleProvider?.displayName) ||
+    getText(user?.providerData?.[0]?.displayName) ||
     'Instructor'
 
   const email =
-    user?.email ||
-    user?.providerData?.[0]?.email ||
+    getText(user?.email) ||
+    getText(googleProvider?.email) ||
+    getText(dbUserData?.email) ||
+    getText(dbUserData?.instructorEmail) ||
+    getText(user?.providerData?.[0]?.email) ||
     ''
 
-  // Navigation links
-  // Activity page added without removing existing pages.
-  const navLinks = [
-    {
-      name: 'Dashboard',
-      href: '/instructor/home',
-      icon: Cloud,
-    },
-    {
-      name: 'Clearance Request',
-      href: '/instructor/clearance',
-      icon: Users,
-    },
-    {
-      name: 'Activity',
-      href: '/instructor/activity',
-      icon: Activity,
-    },
-    {
-      name: 'Profile',
-      href: '/instructor/profile',
-      icon: User,
-    },
-  ]
+  // Active route detection
+
+  const isLinkActive = (
+    href: string
+  ): boolean => {
+    if (pathname === href) {
+      return true
+    }
+
+    if (href === '/instructor/home') {
+      return false
+    }
+
+    return pathname.startsWith(`${href}/`)
+  }
+
+  // Navigation link renderer
+
+  const renderNavigationLink = (
+    link: NavigationLink
+  ) => {
+    const Icon = link.icon
+    const isActive = isLinkActive(link.href)
+
+    return (
+      <Link
+        key={link.href}
+        href={link.href}
+        onClick={handleNavigation}
+        aria-current={
+          isActive ? 'page' : undefined
+        }
+        suppressHydrationWarning
+        className={`group flex min-h-[44px] shrink-0 items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm font-medium transition-all duration-200 ${
+          isActive
+            ? 'border-blue-400/30 bg-blue-600/30 font-semibold text-white shadow-inner'
+            : 'border-transparent text-blue-100/80 hover:border-white/10 hover:bg-white/10 hover:text-white'
+        }`}
+      >
+        <Icon
+          size={18}
+          className={`shrink-0 transition-colors duration-200 ${
+            isActive
+              ? 'text-blue-300'
+              : 'text-blue-400 group-hover:text-blue-200'
+          }`}
+        />
+
+        <span className="min-w-0 flex-1 truncate">
+          {link.name}
+        </span>
+
+        {isActive && (
+          <ChevronRight
+            size={15}
+            className="shrink-0 text-blue-300"
+          />
+        )}
+      </Link>
+    )
+  }
+
+  // Sidebar UI
 
   return (
     <>
-      {/* Mobile Menu Button */}
+      {/* Mobile menu button */}
+
       <button
         type="button"
-        onClick={() => setSidebarOpen(true)}
-        className="fixed left-4 top-4 z-40 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-900 text-white shadow-lg transition hover:bg-blue-800 lg:hidden"
+        onClick={handleOpenSidebar}
         aria-label="Open navigation"
+        aria-controls="instructor-sidebar"
         aria-expanded={sidebarOpen}
+        suppressHydrationWarning
+        className={`fixed left-4 top-4 z-40 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-900 text-white shadow-lg transition hover:bg-blue-800 lg:hidden ${
+          sidebarOpen
+            ? 'pointer-events-none opacity-0'
+            : 'opacity-100'
+        }`}
       >
-        <Menu size={21} />
+        <Menu size={21} aria-hidden="true" />
       </button>
 
-      {/* Mobile Overlay */}
+      {/* Mobile overlay */}
+
       {sidebarOpen && (
-        <button
-          type="button"
-          aria-label="Close navigation"
-          onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-[2px] lg:hidden"
-        />
+        <div className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-[2px] lg:hidden">
+          <button
+            type="button"
+            onClick={handleCloseSidebar}
+            aria-label="Close navigation overlay"
+            suppressHydrationWarning
+            className="absolute inset-0 h-full w-full cursor-default"
+          />
+        </div>
       )}
 
-      {/* Sidebar */}
+      {/* Instructor sidebar */}
+
       <aside
-        className={`
-          fixed inset-y-0 left-0 z-50
-          flex h-[100dvh] w-[280px] max-w-[85vw]
-          flex-col overflow-y-auto
-          bg-gradient-to-b from-blue-900 via-blue-950 to-slate-950
-          p-4 sm:p-5 text-white
-          shadow-2xl
-          transition-transform duration-300 ease-in-out
-          lg:sticky lg:top-0 lg:z-30
-          lg:h-screen lg:w-64 lg:max-w-none
-          lg:translate-x-0
-          lg:shadow-none
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        `}
+        id="instructor-sidebar"
+        aria-label="Instructor sidebar"
+        suppressHydrationWarning
+        className={`fixed inset-y-0 left-0 z-50 flex h-[100dvh] w-[280px] max-w-[85vw] flex-col overflow-hidden bg-gradient-to-b from-blue-900 via-blue-950 to-slate-950 text-white shadow-2xl transition-transform duration-300 ease-in-out lg:sticky lg:top-0 lg:z-30 lg:h-[100dvh] lg:w-64 lg:max-w-none lg:translate-x-0 lg:shadow-none ${
+          sidebarOpen
+            ? 'translate-x-0'
+            : '-translate-x-full'
+        }`}
       >
-        <div className="min-h-0 space-y-6 sm:space-y-8">
-          {/* Mobile Sidebar Header */}
-          <div className="flex items-center justify-between lg:hidden">
-            <div className="text-sm font-semibold tracking-wide text-white/90">
+
+        {/* Fixed profile section */}
+
+        <div className="shrink-0 px-4 pt-4 sm:px-5 sm:pt-5">
+
+          {/* Mobile sidebar header */}
+
+          <div className="mb-5 flex items-center justify-between lg:hidden">
+            <div className="text-sm font-semibold tracking-wide text-blue-200">
               Instructor Portal
             </div>
 
             <button
               type="button"
-              onClick={() => setSidebarOpen(false)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-blue-100/80 transition hover:bg-white/10 hover:text-white"
+              onClick={handleCloseSidebar}
               aria-label="Close navigation"
+              suppressHydrationWarning
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-blue-100/80 transition hover:bg-white/10 hover:text-white"
             >
               <X size={20} />
             </button>
           </div>
 
-          {/* User Info */}
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-white/30 bg-slate-300 shadow-md">
+          {/* User information */}
+
+          <div className="flex min-w-0 items-center gap-3 pb-5">
+
+            {/* Profile photo */}
+
+            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-blue-400/30 bg-blue-800 shadow-md">
               {loading ? (
-                <div className="h-full w-full animate-pulse bg-slate-400" />
+                <div className="h-full w-full animate-pulse bg-blue-700" />
               ) : photoURL && !imageError ? (
                 <img
                   key={photoURL}
@@ -223,11 +545,15 @@ export default function Sidebar() {
                   }}
                 />
               ) : (
-                <div className="flex h-full w-full items-center justify-center bg-blue-800 font-bold text-white">
-                  {displayName.charAt(0).toUpperCase()}
+                <div className="flex h-full w-full items-center justify-center bg-blue-600 font-bold text-white">
+                  {displayName
+                    .charAt(0)
+                    .toUpperCase()}
                 </div>
               )}
             </div>
+
+            {/* User name and email */}
 
             <div className="flex min-w-0 flex-1 flex-col">
               {loading ? (
@@ -237,11 +563,17 @@ export default function Sidebar() {
                 </>
               ) : (
                 <>
-                  <p className="truncate text-sm font-semibold text-white">
+                  <p
+                    className="truncate text-sm font-semibold text-white"
+                    title={displayName}
+                  >
                     {displayName}
                   </p>
 
-                  <p className="truncate text-xs text-blue-200/70">
+                  <p
+                    className="truncate text-xs text-blue-200/70"
+                    title={email}
+                  >
                     {email}
                   </p>
                 </>
@@ -249,70 +581,79 @@ export default function Sidebar() {
             </div>
           </div>
 
-          {/* Navigation */}
-          <nav className="space-y-2">
-            {navLinks.map((link) => {
-              const Icon = link.icon
+          {/* Profile divider */}
 
-              const isActive =
-                pathname === link.href ||
-                pathname.startsWith(`${link.href}/`)
+          <div className="border-t border-blue-700/30" />
+        </div>
 
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  onClick={handleNavigation}
-                  className={`
-                    flex items-center gap-3 rounded-xl
-                    px-4 py-3
-                    text-sm font-medium
-                    transition
-                    ${
-                      isActive
-                        ? 'bg-white/15 font-semibold text-white shadow-inner'
-                        : 'text-blue-100/80 hover:bg-white/10 hover:text-white'
-                    }
-                  `}
+        {/* Independently scrollable navigation */}
+
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5"
+          style={{
+            scrollbarWidth: 'thin',
+            scrollbarColor:
+              'rgba(147, 197, 253, 0.35) transparent',
+          }}
+        >
+          <nav
+            aria-label="Instructor navigation"
+            className="space-y-5"
+          >
+            {navigationSections.map(
+              (section, sectionIndex) => (
+                <div
+                  key={section.title}
+                  className="space-y-1"
                 >
-                  <Icon
-                    size={18}
-                    className="shrink-0"
-                  />
 
-                  <span className="truncate">
-                    {link.name}
-                  </span>
-                </Link>
+                  {/* Section label */}
+
+                  <div className="flex items-center gap-3 px-3.5 pb-1.5 pt-2">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-300/65">
+                      {section.title}
+                    </span>
+
+                    <div className="h-px flex-1 bg-blue-400/10" />
+                  </div>
+
+                  {/* Section links */}
+
+                  <div className="space-y-1">
+                    {section.links.map(
+                      renderNavigationLink
+                    )}
+                  </div>
+
+                  {/* Section separator */}
+
+                  {sectionIndex <
+                    navigationSections.length - 1 && (
+                    <div className="pt-3">
+                      <div className="border-t border-blue-700/20" />
+                    </div>
+                  )}
+                </div>
               )
-            })}
+            )}
           </nav>
         </div>
 
-        {/* Footer */}
-        <div className="mt-auto space-y-2 border-t border-blue-800/40 pt-6 pb-2">
-          <Link
-            href="/settings"
-            onClick={handleNavigation}
-            className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-blue-100/80 transition hover:bg-white/10 hover:text-white"
-          >
-            <Settings
-              size={18}
-              className="shrink-0"
-            />
+        {/* Fixed logout footer */}
 
-            <span>Settings</span>
-          </Link>
+        <div className="z-10 shrink-0 border-t border-blue-700/40 bg-slate-950/40 px-4 pb-4 pt-3 sm:px-5">
 
-          {/* Logout Button */}
+          {/* Logout button */}
+
           <button
             type="button"
             onClick={handleOpenLogoutModal}
-            className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-blue-100/80 transition hover:bg-white/10 hover:text-white"
+            suppressHydrationWarning
+            className="group flex min-h-[44px] w-full shrink-0 items-center gap-3 rounded-xl border border-transparent px-3.5 py-3 text-sm font-medium text-blue-100/80 transition-all duration-200 hover:border-red-400/20 hover:bg-red-500/10 hover:text-white"
           >
             <LogOut
               size={18}
-              className="shrink-0"
+              className="shrink-0 text-blue-400 transition group-hover:text-red-300"
             />
 
             <span>Log out</span>
@@ -320,7 +661,8 @@ export default function Sidebar() {
         </div>
       </aside>
 
-      {/* Logout Confirmation Modal */}
+      {/* Logout confirmation modal */}
+
       {showLogoutModal && (
         <div
           className="fixed inset-0 z-[100] flex min-h-screen items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
@@ -340,7 +682,9 @@ export default function Sidebar() {
             aria-describedby="logout-description"
             className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
           >
-            {/* Modal Header */}
+
+            {/* Modal header */}
+
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6 sm:py-5">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
@@ -359,14 +703,16 @@ export default function Sidebar() {
                 type="button"
                 onClick={handleCloseLogoutModal}
                 disabled={loggingOut}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label="Close"
+                suppressHydrationWarning
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <X size={19} />
               </button>
             </div>
 
-            {/* Modal Content */}
+            {/* Modal content */}
+
             <div className="px-5 py-5 sm:px-6 sm:py-6">
               <p
                 id="logout-description"
@@ -382,12 +728,14 @@ export default function Sidebar() {
               </p>
             </div>
 
-            {/* Modal Actions */}
+            {/* Modal actions */}
+
             <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
               <button
                 type="button"
                 onClick={handleCloseLogoutModal}
                 disabled={loggingOut}
+                suppressHydrationWarning
                 className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 Cancel
@@ -397,6 +745,7 @@ export default function Sidebar() {
                 type="button"
                 onClick={handleLogOut}
                 disabled={loggingOut}
+                suppressHydrationWarning
                 className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
               >
                 {loggingOut ? (

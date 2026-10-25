@@ -826,6 +826,7 @@ export default function FacebookBtn() {
 
   return (
     <button
+      suppressHydrationWarning
       type="button"
       onClick={handleFacebookSignIn}
       disabled={buttonDisabled}

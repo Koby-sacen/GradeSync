@@ -584,7 +584,7 @@ export default function StudentSettingsPage() {
               </p>
 
               <p className="mt-1 text-sm font-bold">
-                UI Only
+                STILL ON DEVELOPMENT
               </p>
             </div>
           </div>
