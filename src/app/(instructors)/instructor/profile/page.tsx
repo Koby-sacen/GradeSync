@@ -12,8 +12,6 @@ import {
   onAuthStateChanged,
   type User as FirebaseUser,
   updateProfile,
-  reload,
-  sendEmailVerification,
 } from 'firebase/auth'
 import { auth, db } from '@/lib/firebase'
 import {
@@ -41,7 +39,6 @@ import {
   ExternalLink,
   Clock3,
   AtSign,
-  Send,
 } from 'lucide-react'
 
 interface InstructorProfileData {
@@ -291,12 +288,6 @@ export default function InstructorProfilePage() {
   const [previewError, setPreviewError] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  const [checkingVerification, setCheckingVerification] =
-    useState(false)
-  const [sendingVerification, setSendingVerification] =
-    useState(false)
-  const [emailVerified, setEmailVerified] = useState(false)
-
   const [profile, setProfile] =
     useState<InstructorProfileData>(EMPTY_PROFILE)
 
@@ -332,27 +323,11 @@ export default function InstructorProfilePage() {
           setProfile(EMPTY_PROFILE)
           setFormData(EMPTY_PROFILE)
           setMetadata(EMPTY_METADATA)
-          setEmailVerified(false)
           setLoading(false)
           return
         }
 
-        setEmailVerified(user.emailVerified)
-
         try {
-          try {
-            await reload(user)
-          } catch (reloadError) {
-            console.warn(
-              '[Instructor Profile] Auth refresh failed:',
-              reloadError
-            )
-          }
-
-          if (!active || thisRequest !== requestId) return
-
-          setEmailVerified(user.emailVerified)
-
           const userRef = doc(db, 'users', user.uid)
           const snapshot = await getDoc(userRef)
 
@@ -440,6 +415,7 @@ export default function InstructorProfilePage() {
           '[Instructor Profile] Authentication error:',
           error
         )
+
         setErrorMessage('Unable to verify your account.')
         setLoading(false)
       }
@@ -477,93 +453,6 @@ export default function InstructorProfilePage() {
     setPreviewError(false)
     setIsEditing(false)
     setErrorMessage('')
-  }
-
-  const handleRefreshVerification = async () => {
-    if (!currentUser || checkingVerification) return
-
-    setCheckingVerification(true)
-    setErrorMessage('')
-    setSuccessMessage('')
-
-    try {
-      await reload(currentUser)
-
-      const verified = currentUser.emailVerified
-      setEmailVerified(verified)
-
-      setSuccessMessage(
-        verified
-          ? 'Your email address is verified!'
-          : 'Your email is connected, but Firebase has not confirmed email verification yet.'
-      )
-    } catch (error) {
-      console.error(
-        '[Instructor Profile] Verification refresh failed:',
-        error
-      )
-
-      setErrorMessage(
-        'Unable to refresh email verification. Please try again.'
-      )
-    } finally {
-      setCheckingVerification(false)
-    }
-  }
-
-  const handleSendVerification = async () => {
-    if (!currentUser || sendingVerification || emailVerified) {
-      return
-    }
-
-    if (!getText(currentUser.email)) {
-      setErrorMessage(
-        'Firebase Authentication does not have an email address available for verification.'
-      )
-      return
-    }
-
-    setSendingVerification(true)
-    setErrorMessage('')
-    setSuccessMessage('')
-
-    try {
-      await sendEmailVerification(currentUser)
-
-      setSuccessMessage(
-        'Verification email sent! Check your inbox and spam folder, open the verification link, then click Refresh Status.'
-      )
-    } catch (error: unknown) {
-      console.error(
-        '[Instructor Profile] Verification email failed:',
-        error
-      )
-
-      const code =
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error
-          ? String(error.code)
-          : ''
-
-      if (code === 'auth/too-many-requests') {
-        setErrorMessage(
-          'Too many verification requests. Please wait before trying again.'
-        )
-      } else if (code === 'auth/requires-recent-login') {
-        setErrorMessage(
-          'Please sign in again before requesting verification.'
-        )
-      } else {
-        setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : 'Unable to send verification email.'
-        )
-      }
-    } finally {
-      setSendingVerification(false)
-    }
   }
 
   const handleSaveProfile = async (
@@ -739,17 +628,9 @@ export default function InstructorProfilePage() {
 
   const hasEmail = Boolean(visibleEmail)
 
-  const emailStatus = !hasEmail
-    ? 'No Email Connected'
-    : emailVerified
-      ? 'Verified Email'
-      : 'Email Connected'
-
-  const emailVerificationLabel = !hasEmail
-    ? 'No Email Connected'
-    : emailVerified
-      ? 'Verified'
-      : 'Verification Pending'
+  const emailStatus = hasEmail
+    ? 'Email Connected'
+    : 'No Email Connected'
 
   const isGoogleAccount = currentUser.providerData.some(
     (provider) => provider.providerId === 'google.com'
@@ -1220,19 +1101,16 @@ export default function InstructorProfilePage() {
                     label="Department / College"
                     value={profile.department}
                   />
-
                   <InformationCard
                     icon={BriefcaseBusiness}
                     label="Academic Position"
                     value={profile.position}
                   />
-
                   <InformationCard
                     icon={GraduationCap}
                     label="Portal Access"
                     value="Instructor Portal"
                   />
-
                   <InformationCard
                     icon={ShieldCheck}
                     label="Account Classification"
@@ -1367,74 +1245,6 @@ export default function InstructorProfilePage() {
                   <p className="mt-2 break-all text-xs text-slate-500">
                     {visibleEmail || 'No email available'}
                   </p>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-slate-600">
-                      Email Verification
-                    </p>
-
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                        emailVerified
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-amber-100 text-amber-700'
-                      }`}
-                    >
-                      {emailVerificationLabel}
-                    </span>
-                  </div>
-
-                  <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                    {emailVerified
-                      ? 'Firebase Authentication confirms this email address is verified.'
-                      : hasEmail
-                        ? 'Your email is connected to your account. Verification has not yet been confirmed by Firebase.'
-                        : 'No email address is available for verification.'}
-                  </p>
-
-                  {hasEmail && (
-                    <div className="mt-4 flex flex-col gap-2">
-                      <button
-                        suppressHydrationWarning
-                        type="button"
-                        onClick={handleRefreshVerification}
-                        disabled={checkingVerification}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
-                      >
-                        <RefreshCw
-                          className={`h-4 w-4 ${
-                            checkingVerification
-                              ? 'animate-spin'
-                              : ''
-                          }`}
-                        />
-                        {checkingVerification
-                          ? 'Checking...'
-                          : 'Refresh Verification Status'}
-                      </button>
-
-                      {!emailVerified && Boolean(currentUser.email) && (
-                        <button
-                          suppressHydrationWarning
-                          type="button"
-                          onClick={handleSendVerification}
-                          disabled={sendingVerification}
-                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-800 disabled:opacity-50"
-                        >
-                          {sendingVerification ? (
-                            <RefreshCw className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Send className="h-4 w-4" />
-                          )}
-                          {sendingVerification
-                            ? 'Sending...'
-                            : 'Send Verification Email'}
-                        </button>
-                      )}
-                    </div>
-                  )}
                 </div>
 
                 <p className="text-xs leading-relaxed text-slate-500">

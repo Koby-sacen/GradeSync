@@ -1,4 +1,3 @@
-
 'use client'
 
 import React, {
@@ -9,7 +8,7 @@ import React, {
 
 import {
   onAuthStateChanged,
-  User as FirebaseUser,
+  type User as FirebaseUser,
 } from 'firebase/auth'
 
 import {
@@ -22,6 +21,7 @@ import {
   query,
   where,
   serverTimestamp,
+  writeBatch,
 } from 'firebase/firestore'
 
 import { auth, db } from '@/lib/firebase'
@@ -63,9 +63,10 @@ interface ActivityToRecord {
   subjectCode?: string
 }
 
-const INITIAL_SUBJECTS: SubjectRow[] = [
-  {
-    id: '1',
+const INITIAL_SUBJECTS: SubjectRow[] = Array.from(
+  { length: 5 },
+  (_, index) => ({
+    id: String(index + 1),
     code: '',
     description: '',
     grades: '',
@@ -73,48 +74,8 @@ const INITIAL_SUBJECTS: SubjectRow[] = [
     signature: '',
     instructorId: '',
     instructorName: '',
-  },
-  {
-    id: '2',
-    code: '',
-    description: '',
-    grades: '',
-    remarks: '',
-    signature: '',
-    instructorId: '',
-    instructorName: '',
-  },
-  {
-    id: '3',
-    code: '',
-    description: '',
-    grades: '',
-    remarks: '',
-    signature: '',
-    instructorId: '',
-    instructorName: '',
-  },
-  {
-    id: '4',
-    code: '',
-    description: '',
-    grades: '',
-    remarks: '',
-    signature: '',
-    instructorId: '',
-    instructorName: '',
-  },
-  {
-    id: '5',
-    code: '',
-    description: '',
-    grades: '',
-    remarks: '',
-    signature: '',
-    instructorId: '',
-    instructorName: '',
-  },
-]
+  })
+)
 
 function normalizeSubject(
   value: Partial<SubjectRow>,
@@ -140,7 +101,9 @@ function getSubjectName(subject: SubjectRow): string {
   )
 }
 
-function getSubjectReference(subject: SubjectRow): string {
+function getSubjectReference(
+  subject: SubjectRow
+): string {
   const name = getSubjectName(subject)
   const code = subject.code.trim()
 
@@ -174,7 +137,6 @@ function buildSubjectActivities(
     ])
   )
 
-  // Identify subjects that were added.
   for (const subject of currentSubjects) {
     const previous = previousById.get(subject.id)
 
@@ -189,7 +151,6 @@ function buildSubjectActivities(
       continue
     }
 
-    // Identify subject information changes.
     const changes: string[] = []
 
     if (previous.code !== subject.code) {
@@ -198,7 +159,10 @@ function buildSubjectActivities(
       )
     }
 
-    if (previous.description !== subject.description) {
+    if (
+      previous.description !==
+      subject.description
+    ) {
       changes.push(
         `subject name from "${previous.description || 'Empty'}" to "${subject.description || 'Empty'}"`
       )
@@ -213,7 +177,6 @@ function buildSubjectActivities(
       )
     }
 
-    // Preserve tracking for other editable fields.
     if (previous.grades !== subject.grades) {
       changes.push('grade')
     }
@@ -222,7 +185,10 @@ function buildSubjectActivities(
       changes.push('remarks')
     }
 
-    if (previous.signature !== subject.signature) {
+    if (
+      previous.signature !==
+      subject.signature
+    ) {
       changes.push('signature')
     }
 
@@ -236,7 +202,6 @@ function buildSubjectActivities(
     }
   }
 
-  // Identify deleted subjects using their saved names.
   for (const previous of previousSubjects) {
     if (!currentById.has(previous.id)) {
       activities.push({
@@ -256,17 +221,16 @@ export default function Page() {
     useState<FirebaseUser | null>(null)
 
   const [userRole, setUserRole] =
-    useState<string>('student')
+    useState('student')
 
   const [loading, setLoading] =
     useState(true)
 
-  // Request tracking state for student view.
   const [existingRequestId, setExistingRequestId] =
     useState<string | null>(null)
 
   const [clearanceStatus, setClearanceStatus] =
-    useState<string>('Not Shared')
+    useState('Not Shared')
 
   const [saving, setSaving] =
     useState(false)
@@ -274,7 +238,6 @@ export default function Page() {
   const [saveSuccess, setSaveSuccess] =
     useState(false)
 
-  // Sharing & Modal state.
   const [isModalOpen, setIsModalOpen] =
     useState(false)
 
@@ -293,7 +256,6 @@ export default function Page() {
   const [shareSuccess, setShareSuccess] =
     useState(false)
 
-  // Editable header state.
   const [studentName, setStudentName] =
     useState('')
 
@@ -306,75 +268,56 @@ export default function Page() {
   const [studentEmail, setStudentEmail] =
     useState('')
 
-  // Editable subjects table state.
   const [subjects, setSubjects] =
     useState<SubjectRow[]>(INITIAL_SUBJECTS)
 
-  // NEW:
-  // Store the last successfully saved subjects.
-  // This lets us detect real additions, deletions,
-  // and edits instead of relying on updatedAt.
   const savedSubjectsRef =
     useRef<SubjectRow[]>([])
 
-  // NEW:
-  // Tracks whether the current form was loaded
-  // from an existing Firestore request.
   const savedRequestRef =
     useRef<string | null>(null)
 
-  // NEW:
-  // Prevent overlapping save and share operations.
   const operationInProgressRef =
     useRef(false)
 
-  
+  const isInstructor =
+    userRole === 'instructor'
+
+  // Instructor directory
+
   const fetchInstructorsList = async () => {
     try {
-      const querySnapshot = await getDocs(
+      const snapshot = await getDocs(
         collection(db, 'users')
       )
 
       const fetched: Instructor[] = []
 
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data()
+      snapshot.forEach((document) => {
+        const data = document.data()
 
-        const role = data.role
-          ? String(data.role).toLowerCase().trim()
-          : ''
+        const role = String(
+          data.role || ''
+        ).toLowerCase().trim()
 
-        if (role === 'instructor') {
-          const displayName =
-            typeof data.displayName === 'string'
-              ? data.displayName.trim()
-              : ''
+        if (role !== 'instructor') return
 
-          const fullName =
-            typeof data.fullName === 'string'
-              ? data.fullName.trim()
-              : ''
+        const name =
+          String(
+            data.displayName ||
+            data.fullName ||
+            data.name ||
+            ''
+          ).trim() || 'Unnamed Instructor'
 
-          const name =
-            typeof data.name === 'string'
-              ? data.name.trim()
-              : ''
+        const email =
+          String(data.email || '').trim()
 
-          const email =
-            typeof data.email === 'string'
-              ? data.email.trim()
-              : ''
-
-          fetched.push({
-            id: docSnap.id,
-            name:
-              displayName ||
-              fullName ||
-              name ||
-              'Unnamed Instructor',
-            email: email || 'No email provided',
-          })
-        }
+        fetched.push({
+          id: document.id,
+          name,
+          email: email || 'No email provided',
+        })
       })
 
       fetched.sort((a, b) =>
@@ -390,6 +333,7 @@ export default function Page() {
     }
   }
 
+  // Authentication and existing clearance
 
   useEffect(() => {
     let active = true
@@ -402,7 +346,6 @@ export default function Page() {
         setUser(currentUser)
         setLoading(true)
 
-        // Reset saved snapshots when accounts change.
         savedSubjectsRef.current = []
         savedRequestRef.current = null
 
@@ -414,31 +357,26 @@ export default function Page() {
         setYearAndSection('')
         setStudentId('')
         setStudentEmail('')
+        setUserRole('student')
 
         if (currentUser) {
           await fetchInstructorsList()
 
           if (!active) return
 
-          // Fetch user role.
           try {
-            const userDocRef = doc(
-              db,
-              'users',
-              currentUser.uid
+            const userSnapshot = await getDoc(
+              doc(db, 'users', currentUser.uid)
             )
-
-            const userDocSnap =
-              await getDoc(userDocRef)
 
             if (!active) return
 
-            if (userDocSnap.exists()) {
-              const data = userDocSnap.data()
+            if (userSnapshot.exists()) {
+              const role = userSnapshot.data().role
 
-              if (data.role) {
+              if (role) {
                 setUserRole(
-                  String(data.role).toLowerCase()
+                  String(role).toLowerCase()
                 )
               }
             }
@@ -449,9 +387,8 @@ export default function Page() {
             )
           }
 
-          // Fetch existing clearance request.
           try {
-            const q = query(
+            const clearanceQuery = query(
               collection(db, 'requests'),
               where(
                 'studentUid',
@@ -460,22 +397,20 @@ export default function Page() {
               )
             )
 
-            const querySnapshot =
-              await getDocs(q)
+            const snapshot = await getDocs(
+              clearanceQuery
+            )
 
             if (!active) return
 
-            if (!querySnapshot.empty) {
-              const docSnap =
-                querySnapshot.docs[0]
-
-              const reqData =
-                docSnap.data()
+            if (!snapshot.empty) {
+              const document = snapshot.docs[0]
+              const data = document.data()
 
               const loadedSubjects:
                 SubjectRow[] =
-                Array.isArray(reqData.subjects)
-                  ? reqData.subjects.map(
+                Array.isArray(data.subjects)
+                  ? data.subjects.map(
                       (
                         subject: Partial<SubjectRow>,
                         index: number
@@ -487,19 +422,13 @@ export default function Page() {
                     )
                   : INITIAL_SUBJECTS
 
-              setExistingRequestId(
-                docSnap.id
-              )
+              setExistingRequestId(document.id)
 
               savedRequestRef.current =
-                docSnap.id
+                document.id
 
-              setSubjects(
-                loadedSubjects
-              )
+              setSubjects(loadedSubjects)
 
-              // IMPORTANT:
-              // Keep the saved version separately.
               savedSubjectsRef.current =
                 loadedSubjects.map(
                   (subject) => ({
@@ -507,39 +436,31 @@ export default function Page() {
                   })
                 )
 
-              if (reqData.studentName) {
-                setStudentName(
-                  reqData.studentName
-                )
-              }
+              setStudentName(
+                String(data.studentName || '')
+              )
 
-              if (reqData.yearAndSection) {
-                setYearAndSection(
-                  reqData.yearAndSection
-                )
-              }
+              setYearAndSection(
+                String(data.yearAndSection || '')
+              )
 
-              if (reqData.studentId) {
-                setStudentId(
-                  reqData.studentId
-                )
-              }
+              setStudentId(
+                String(data.studentId || '')
+              )
 
-              if (reqData.studentEmail) {
-                setStudentEmail(
-                  reqData.studentEmail
-                )
-              }
+              setStudentEmail(
+                String(data.studentEmail || '')
+              )
 
-              if (reqData.status) {
-                setClearanceStatus(
-                  reqData.status
+              setClearanceStatus(
+                String(
+                  data.status || 'Not Shared'
                 )
-              }
+              )
             }
           } catch (error) {
             console.error(
-              'Error fetching student clearance request:',
+              'Error fetching clearance:',
               error
             )
           }
@@ -557,30 +478,22 @@ export default function Page() {
     }
   }, [])
 
-  const isInstructor =
-    userRole === 'instructor'
-
-  const handleOpenModal = () => {
-    void fetchInstructorsList()
-    setIsModalOpen(true)
-  }
+  // Subject editing
 
   const handleSubjectChange = (
     id: string,
     field: keyof SubjectRow,
     value: string
   ) => {
-    setSubjects((prev) =>
-      prev.map((subj) => {
-        if (subj.id === id) {
-          return {
-            ...subj,
-            [field]: value,
-          }
-        }
-
-        return subj
-      })
+    setSubjects((previous) =>
+      previous.map((subject) =>
+        subject.id === id
+          ? {
+              ...subject,
+              [field]: value,
+            }
+          : subject
+      )
     )
   }
 
@@ -588,26 +501,22 @@ export default function Page() {
     subjectId: string,
     instructorId: string
   ) => {
-    const selectedInst =
-      instructors.find(
-        (i) => i.id === instructorId
+    const selected = instructors.find(
+      (instructor) =>
+        instructor.id === instructorId
+    )
+
+    setSubjects((previous) =>
+      previous.map((subject) =>
+        subject.id === subjectId
+          ? {
+              ...subject,
+              instructorId,
+              instructorName:
+                selected?.name || '',
+            }
+          : subject
       )
-
-    setSubjects((prev) =>
-      prev.map((subj) => {
-        if (subj.id === subjectId) {
-          return {
-            ...subj,
-            instructorId,
-            instructorName:
-              selectedInst
-                ? selectedInst.name
-                : '',
-          }
-        }
-
-        return subj
-      })
     )
   }
 
@@ -615,7 +524,8 @@ export default function Page() {
     const newSubject: SubjectRow = {
       id:
         typeof crypto !== 'undefined' &&
-        typeof crypto.randomUUID === 'function'
+        typeof crypto.randomUUID ===
+          'function'
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random()}`,
       code: '',
@@ -627,37 +537,24 @@ export default function Page() {
       instructorName: '',
     }
 
-    setSubjects((prev) => [
-      ...prev,
+    setSubjects((previous) => [
+      ...previous,
       newSubject,
     ])
-
-    // The activity will be recorded when
-    // Save Clearance or Share commits this row.
-    // This ensures its final subject name is logged.
   }
 
   const handleDeleteSubject = (
     id: string
   ) => {
-    setSubjects((prev) =>
-      prev.filter(
-        (subj) => subj.id !== id
+    setSubjects((previous) =>
+      previous.filter(
+        (subject) => subject.id !== id
       )
     )
-
-    // The deleted subject's original name remains
-    // in savedSubjectsRef until the next save.
-    // It will be included in the activity history.
   }
 
-  // NEW:
-  // Record each activity in Firestore using the
-  // same activities collection as the instructor.
-  //
-  // The existing logger's standard fields are
-  // used to remain compatible with the current
-  // Firestore rules and Student Activity page.
+  // Student activity history
+
   const saveActivityLogs = async (
     clearanceId: string,
     activitiesToRecord: ActivityToRecord[]
@@ -665,38 +562,151 @@ export default function Page() {
     if (!user || isInstructor) return
 
     for (const activity of activitiesToRecord) {
-      try {
-        await recordStudentActivity({
-          action: activity.action,
-          clearanceId,
-          subjectCode:
-            activity.subjectCode || '',
-          studentName:
-            studentName.trim() ||
-            user.displayName ||
-            user.email ||
-            'Student',
-          description:
-            activity.description,
-        })
-      } catch (error) {
-        console.error(
-          `Failed to record ${activity.action}:`,
-          error
-        )
-
-        // Do not claim the activity was recorded.
-        // The clearance save has already succeeded,
-        // so the log failure is reported separately.
-        throw error
-      }
+      await recordStudentActivity({
+        action: activity.action,
+        clearanceId,
+        subjectCode:
+          activity.subjectCode || '',
+        studentName:
+          studentName.trim() ||
+          user.displayName ||
+          user.email ||
+          'Student',
+        description:
+          activity.description,
+      })
     }
   }
 
-  // NEW:
-  // Save changes and create individual activity
-  // documents for every added, removed or edited
-  // subject.
+  // Instructor notifications
+
+  const createInstructorNotifications = async (
+    clearanceId: string,
+    primaryInstructor: Instructor,
+    currentSubjects: SubjectRow[]
+  ): Promise<void> => {
+    if (!user || isInstructor) return
+
+    const recipients = new Map<
+      string,
+      Instructor
+    >()
+
+    recipients.set(
+      primaryInstructor.id,
+      primaryInstructor
+    )
+
+    currentSubjects.forEach((subject) => {
+      const instructorId =
+        String(
+          subject.instructorId || ''
+        ).trim()
+
+      if (!instructorId) return
+
+      const assignedInstructor =
+        instructors.find(
+          (instructor) =>
+            instructor.id === instructorId
+        )
+
+      recipients.set(
+        instructorId,
+        assignedInstructor || {
+          id: instructorId,
+          name:
+            subject.instructorName ||
+            'Instructor',
+          email: '',
+        }
+      )
+    })
+
+    const senderName =
+      studentName.trim() ||
+      user.displayName ||
+      user.email ||
+      'Student'
+
+    const batch = writeBatch(db)
+
+    recipients.forEach((instructor) => {
+      const assignedSubjects =
+        currentSubjects.filter(
+          (subject) =>
+            subject.instructorId ===
+            instructor.id
+        )
+
+      const subjectNames =
+        assignedSubjects
+          .map((subject) =>
+            getSubjectName(subject)
+          )
+          .filter(Boolean)
+
+      const message =
+        assignedSubjects.length > 0
+          ? `${senderName} shared a clearance with you. You have ${assignedSubjects.length} assigned subject(s): ${subjectNames.join(', ')}. Please review the clearance.`
+          : `${senderName} shared a clearance document with you. Please review the clearance request.`
+
+      const notificationRef = doc(
+        collection(db, 'Notifications')
+      )
+
+      batch.set(
+        notificationRef,
+        {
+          recipientUid: instructor.id,
+          recipientEmail:
+            instructor.email ===
+            'No email provided'
+              ? ''
+              : instructor.email,
+
+          senderUid: user.uid,
+          senderName,
+
+          studentUid: user.uid,
+          studentName: senderName,
+
+          studentEmail:
+            studentEmail.trim() ||
+            user.email ||
+            '',
+
+          clearanceId,
+          requestId: clearanceId,
+
+          title:
+            'New Clearance Request',
+
+          message,
+
+          type:
+            'clearance_shared',
+
+          category:
+            'clearance',
+
+          read: false,
+          isRead: false,
+
+          link:
+            `/instructor/clearance?requestId=${encodeURIComponent(clearanceId)}`,
+
+          createdAt:
+            serverTimestamp(),
+        }
+      )
+    })
+
+    await batch.commit()
+  }
+
+  // Save clearance
+
   const handleSaveClearance = async () => {
     if (!user || isInstructor) return
 
@@ -742,14 +752,12 @@ export default function Page() {
         !clearanceId
 
       if (clearanceId) {
-        const docRef = doc(
-          db,
-          'requests',
-          clearanceId
-        )
-
         await updateDoc(
-          docRef,
+          doc(
+            db,
+            'requests',
+            clearanceId
+          ),
           {
             studentName,
             yearAndSection,
@@ -761,32 +769,24 @@ export default function Page() {
           }
         )
       } else {
-        const docRef =
-          await addDoc(
-            collection(
-              db,
-              'requests'
-            ),
-            {
-              studentUid:
-                user.uid,
-              studentName,
-              yearAndSection,
-              studentId,
-              studentEmail,
-              subjects:
-                currentSubjects,
-              status:
-                clearanceStatus,
-              createdAt:
-                serverTimestamp(),
-              updatedAt:
-                serverTimestamp(),
-            }
-          )
+        const document = await addDoc(
+          collection(db, 'requests'),
+          {
+            studentUid: user.uid,
+            studentName,
+            yearAndSection,
+            studentId,
+            studentEmail,
+            subjects: currentSubjects,
+            status: clearanceStatus,
+            createdAt:
+              serverTimestamp(),
+            updatedAt:
+              serverTimestamp(),
+          }
+        )
 
-        clearanceId =
-          docRef.id
+        clearanceId = document.id
 
         setExistingRequestId(
           clearanceId
@@ -796,7 +796,6 @@ export default function Page() {
           clearanceId
       }
 
-      // The clearance was successfully persisted.
       savedSuccessfully = true
 
       savedSubjectsRef.current =
@@ -808,7 +807,6 @@ export default function Page() {
 
       setSaveSuccess(true)
 
-      // Build a separate record for each action.
       const activityLogs:
         ActivityToRecord[] = []
 
@@ -832,34 +830,26 @@ export default function Page() {
           'You saved your clearance.',
       })
 
-      // Write activity documents AFTER the request
-      // exists, satisfying rules that check
-      // ownership of the clearance.
       await saveActivityLogs(
         clearanceId,
         activityLogs
       )
 
       setTimeout(
-        () =>
-          setSaveSuccess(false),
+        () => setSaveSuccess(false),
         4000
       )
     } catch (error) {
       console.error(
-        'Error saving clearance or its activity logs:',
+        'Error saving clearance:',
         error
       )
 
-      if (savedSuccessfully) {
-        alert(
-          'Your clearance was saved, but some activity records could not be written. Check Firestore activity permissions.'
-        )
-      } else {
-        alert(
-          'Failed to save clearance. Please try again.'
-        )
-      }
+      alert(
+        savedSuccessfully
+          ? 'Your clearance was saved, but some activity records could not be written. Check Firestore activity permissions.'
+          : 'Failed to save clearance. Please try again.'
+      )
     } finally {
       setSaving(false)
       operationInProgressRef.current =
@@ -867,9 +857,8 @@ export default function Page() {
     }
   }
 
-  // NEW:
-  // Sharing now logs the instructor's name
-  // and any subject changes saved during sharing.
+  // Share clearance and notify instructors
+
   const handleConfirmShare = async () => {
     if (!user || isInstructor) return
 
@@ -893,6 +882,7 @@ export default function Page() {
     setShareSuccess(false)
 
     let savedSuccessfully = false
+    let notificationSucceeded = false
 
     try {
       const instructorToShare =
@@ -925,14 +915,12 @@ export default function Page() {
         !clearanceId
 
       if (clearanceId) {
-        const docRef = doc(
-          db,
-          'requests',
-          clearanceId
-        )
-
         await updateDoc(
-          docRef,
+          doc(
+            db,
+            'requests',
+            clearanceId
+          ),
           {
             studentName,
             yearAndSection,
@@ -944,43 +932,37 @@ export default function Page() {
               instructorToShare.name,
             subjects:
               currentSubjects,
-            status:
-              'Pending',
+            status: 'Pending',
             updatedAt:
               serverTimestamp(),
           }
         )
       } else {
-        const docRef =
-          await addDoc(
-            collection(
-              db,
-              'requests'
-            ),
-            {
-              studentUid:
-                user.uid,
-              studentName,
-              yearAndSection,
-              studentId,
-              studentEmail,
-              instructorId:
-                instructorToShare.id,
-              instructorName:
-                instructorToShare.name,
-              subjects:
-                currentSubjects,
-              status:
-                'Pending',
-              createdAt:
-                serverTimestamp(),
-              updatedAt:
-                serverTimestamp(),
-            }
-          )
+        const document = await addDoc(
+          collection(db, 'requests'),
+          {
+            studentUid:
+              user.uid,
+            studentName,
+            yearAndSection,
+            studentId,
+            studentEmail,
+            instructorId:
+              instructorToShare.id,
+            instructorName:
+              instructorToShare.name,
+            subjects:
+              currentSubjects,
+            status: 'Pending',
+            createdAt:
+              serverTimestamp(),
+            updatedAt:
+              serverTimestamp(),
+          }
+        )
 
         clearanceId =
-          docRef.id
+          document.id
 
         setExistingRequestId(
           clearanceId
@@ -999,13 +981,27 @@ export default function Page() {
           })
         )
 
-      setClearanceStatus(
-        'Pending'
-      )
-
+      setClearanceStatus('Pending')
       setShareSuccess(true)
       setIsModalOpen(false)
       setSelectedInstructor(null)
+
+      // Notify the primary instructor and all assigned instructors.
+
+      try {
+        await createInstructorNotifications(
+          clearanceId,
+          instructorToShare,
+          currentSubjects
+        )
+
+        notificationSucceeded = true
+      } catch (notificationError) {
+        console.error(
+          '[Student Clearance] Notification error:',
+          notificationError
+        )
+      }
 
       const activityLogs:
         ActivityToRecord[] = []
@@ -1035,31 +1031,37 @@ export default function Page() {
         activityLogs
       )
 
+      if (!notificationSucceeded) {
+        alert(
+          'Your clearance was shared successfully, but instructor notifications could not be created. Please check the Firestore rules for the Notifications collection.'
+        )
+      }
+
       setTimeout(
-        () =>
-          setShareSuccess(false),
+        () => setShareSuccess(false),
         4000
       )
     } catch (error) {
       console.error(
-        'Error sharing clearance or recording activity:',
+        'Error sharing clearance:',
         error
       )
 
-      if (savedSuccessfully) {
-        alert(
-          'Your clearance was shared, but some activity records could not be written. Check Firestore activity permissions.'
-        )
-      } else {
-        alert(
-          'Failed to share clearance. Please try again.'
-        )
-      }
+      alert(
+        savedSuccessfully
+          ? 'Your clearance was shared, but some activity records could not be written. Check Firestore activity permissions.'
+          : 'Failed to share clearance. Please try again.'
+      )
     } finally {
       setSharing(false)
       operationInProgressRef.current =
         false
     }
+  }
+
+  const handleOpenModal = () => {
+    void fetchInstructorsList()
+    setIsModalOpen(true)
   }
 
   const handleDownload = () => {
@@ -1068,13 +1070,13 @@ export default function Page() {
 
   const filteredInstructors =
     instructors.filter(
-      (inst) =>
-        inst.name
+      (instructor) =>
+        instructor.name
           .toLowerCase()
           .includes(
             searchQuery.toLowerCase()
           ) ||
-        inst.email
+        instructor.email
           .toLowerCase()
           .includes(
             searchQuery.toLowerCase()
@@ -1093,8 +1095,8 @@ export default function Page() {
 
   return (
     <div className="min-h-screen bg-slate-100 p-4 sm:p-8 flex flex-col items-center">
-
       {/* Top Action Bar */}
+
       <div className="w-full max-w-5xl mb-6 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold text-slate-800">
@@ -1105,20 +1107,11 @@ export default function Page() {
             )
           </h1>
 
-          {!isInstructor &&
-            clearanceStatus && (
-              <span
-                className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
-                  clearanceStatus === 'Reviewed'
-                    ? 'bg-slate-200 text-slate-800'
-                    : clearanceStatus === 'Pending'
-                      ? 'bg-slate-200 text-slate-800'
-                      : 'bg-slate-200 text-slate-700'
-                }`}
-              >
-                Status: {clearanceStatus}
-              </span>
-            )}
+          {!isInstructor && clearanceStatus && (
+            <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-200 text-slate-800">
+              Status: {clearanceStatus}
+            </span>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2.5 items-center">
@@ -1127,7 +1120,7 @@ export default function Page() {
               <button
                 onClick={handleSaveClearance}
                 disabled={saving || sharing}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400 transition disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 transition disabled:opacity-50"
               >
                 <Save className="w-4 h-4 text-slate-500" />
                 {saving
@@ -1139,8 +1132,8 @@ export default function Page() {
 
               <button
                 onClick={handleOpenModal}
-                disabled={sharing || saving}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400 transition disabled:opacity-50"
+                disabled={saving || sharing}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 transition disabled:opacity-50"
               >
                 <Share2 className="w-4 h-4 text-slate-500" />
                 {sharing
@@ -1155,30 +1148,30 @@ export default function Page() {
           <button
             onClick={handleAddSubject}
             disabled={saving || sharing}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400 transition disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 transition disabled:opacity-50"
           >
-            <Plus className="w-4 h-4 text-slate-500" />
+            <Plus className="w-4 h-4" />
             Add Subject
           </button>
 
           <button
             onClick={handleDownload}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-900 border border-transparent rounded-lg shadow-sm hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 transition"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg shadow-sm hover:bg-slate-800 transition"
           >
-            <Download className="w-4 h-4 text-slate-300" />
+            <Download className="w-4 h-4" />
             Download / Print
           </button>
         </div>
       </div>
 
       {/* Printable Clearance Form */}
+
       <div className="w-full max-w-5xl bg-white p-8 sm:p-12 shadow-lg rounded-2xl print:shadow-none print:p-0 print:w-full text-slate-900">
-
         {/* Header Information */}
-        <div className="space-y-4 text-sm font-medium border-b border-slate-300 pb-6 mb-6 print:border-b print:border-slate-400">
-          <div className="flex flex-col sm:flex-row justify-between gap-4">
 
-            <div className="flex-1 border-b border-slate-400 pb-1 flex items-center print:border-b print:border-slate-400">
+        <div className="space-y-4 text-sm font-medium border-b border-slate-300 pb-6 mb-6">
+          <div className="flex flex-col sm:flex-row justify-between gap-4">
+            <div className="flex-1 border-b border-slate-400 pb-1 flex items-center">
               <span className="text-slate-500 mr-2 shrink-0">
                 Name:
               </span>
@@ -1186,16 +1179,18 @@ export default function Page() {
               <input
                 type="text"
                 value={studentName}
-                onChange={(e) =>
-                  setStudentName(e.target.value)
+                onChange={(event) =>
+                  setStudentName(
+                    event.target.value
+                  )
                 }
                 suppressHydrationWarning
-                className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 font-semibold placeholder:text-slate-300 print:border-none print:shadow-none print:outline-none"
+                className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 font-semibold placeholder:text-slate-300"
                 placeholder="e.g., Student Full Name"
               />
             </div>
 
-            <div className="w-full sm:w-72 border-b border-slate-400 pb-1 flex items-center print:border-b print:border-slate-400">
+            <div className="w-full sm:w-72 border-b border-slate-400 pb-1 flex items-center">
               <span className="text-slate-500 mr-2 shrink-0">
                 Year & Section:
               </span>
@@ -1203,16 +1198,18 @@ export default function Page() {
               <input
                 type="text"
                 value={yearAndSection}
-                onChange={(e) =>
-                  setYearAndSection(e.target.value)
+                onChange={(event) =>
+                  setYearAndSection(
+                    event.target.value
+                  )
                 }
                 suppressHydrationWarning
-                className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 placeholder:text-slate-300 print:border-none print:shadow-none print:outline-none"
+                className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 placeholder:text-slate-300"
                 placeholder="e.g., BSIS - 4B"
               />
             </div>
 
-            <div className="w-full sm:w-48 border-b border-slate-400 pb-1 flex items-center print:border-b print:border-slate-400">
+            <div className="w-full sm:w-48 border-b border-slate-400 pb-1 flex items-center">
               <span className="text-slate-500 mr-2 shrink-0">
                 Date:
               </span>
@@ -1224,7 +1221,7 @@ export default function Page() {
           </div>
 
           <div className="flex flex-col sm:flex-row justify-between gap-4">
-            <div className="w-full sm:w-72 border-b border-slate-400 pb-1 flex items-center print:border-b print:border-slate-400">
+            <div className="w-full sm:w-72 border-b border-slate-400 pb-1 flex items-center">
               <span className="text-slate-500 mr-2 shrink-0">
                 ID no.:
               </span>
@@ -1232,11 +1229,13 @@ export default function Page() {
               <input
                 type="text"
                 value={studentId}
-                onChange={(e) =>
-                  setStudentId(e.target.value)
+                onChange={(event) =>
+                  setStudentId(
+                    event.target.value
+                  )
                 }
                 suppressHydrationWarning
-                className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 placeholder:text-slate-300 print:border-none print:shadow-none print:outline-none"
+                className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1"
                 placeholder="e.g., 234157"
               />
             </div>
@@ -1245,11 +1244,13 @@ export default function Page() {
               <input
                 type="text"
                 value={studentEmail}
-                onChange={(e) =>
-                  setStudentEmail(e.target.value)
+                onChange={(event) =>
+                  setStudentEmail(
+                    event.target.value
+                  )
                 }
                 suppressHydrationWarning
-                className="w-full sm:w-72 text-right bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 text-xs text-slate-500 placeholder:text-slate-300 print:border-none print:shadow-none print:outline-none"
+                className="w-full sm:w-72 text-right bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 text-xs text-slate-500"
                 placeholder="e.g., student@gmail.com"
               />
             </div>
@@ -1257,6 +1258,7 @@ export default function Page() {
         </div>
 
         {/* Clearance Subjects Table */}
+
         <div className="overflow-x-auto">
           <table className="w-full border-collapse border border-slate-400 text-left text-sm print:table print:w-full">
             <thead>
@@ -1292,69 +1294,68 @@ export default function Page() {
             </thead>
 
             <tbody>
-              {subjects.map((subj) => {
+              {subjects.map((subject) => {
                 const isAssignedToThisInstructor =
                   isInstructor &&
                   user &&
-                  subj.instructorId === user.uid
+                  subject.instructorId ===
+                    user.uid
 
                 return (
                   <tr
-                    key={subj.id}
+                    key={subject.id}
                     className="print:table-row"
                   >
-                    {/* Subject Code */}
-                    <td className="border border-slate-400 p-2 print:p-2">
+                    <td className="border border-slate-400 p-2">
                       <input
                         type="text"
-                        value={subj.code}
-                        onChange={(e) =>
+                        value={subject.code}
+                        onChange={(event) =>
                           handleSubjectChange(
-                            subj.id,
+                            subject.id,
                             'code',
-                            e.target.value
+                            event.target.value
                           )
                         }
                         suppressHydrationWarning
-                        className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 font-medium print:border-none print:bg-transparent print:p-0"
+                        className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 font-medium"
                         placeholder="Code"
                       />
                     </td>
 
-                    {/* Subject Description */}
-                    <td className="border border-slate-400 p-2 print:p-2">
+                    <td className="border border-slate-400 p-2">
                       <input
                         type="text"
-                        value={subj.description}
-                        onChange={(e) =>
+                        value={subject.description}
+                        onChange={(event) =>
                           handleSubjectChange(
-                            subj.id,
+                            subject.id,
                             'description',
-                            e.target.value
+                            event.target.value
                           )
                         }
                         suppressHydrationWarning
-                        className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 print:border-none print:bg-transparent print:p-0"
-                        placeholder=" e.g., Software Engineering"
+                        className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1"
+                        placeholder="e.g., Software Engineering"
                       />
                     </td>
 
-                    {/* Assigned Instructor */}
                     <td className="border border-slate-400 p-2 text-center print:hidden">
                       {isInstructor ? (
                         <span className="text-xs font-medium text-slate-700">
-                          {subj.instructorName ||
+                          {subject.instructorName ||
                             'Unassigned'}
                         </span>
                       ) : (
                         <select
                           value={
-                            subj.instructorId || ''
+                            subject.instructorId ||
+                            ''
                           }
-                          onChange={(e) =>
+                          onChange={(event) =>
                             handleAssignInstructorToSubject(
-                              subj.id,
-                              e.target.value
+                              subject.id,
+                              event.target.value
                             )
                           }
                           suppressHydrationWarning
@@ -1365,12 +1366,12 @@ export default function Page() {
                           </option>
 
                           {instructors.map(
-                            (inst) => (
+                            (instructor) => (
                               <option
-                                key={inst.id}
-                                value={inst.id}
+                                key={instructor.id}
+                                value={instructor.id}
                               >
-                                {inst.name}
+                                {instructor.name}
                               </option>
                             )
                           )}
@@ -1378,9 +1379,8 @@ export default function Page() {
                       )}
                     </td>
 
-                    {/* Grades */}
                     <td
-                      className={`relative group border border-slate-400 p-2 text-center print:p-2 ${
+                      className={`relative group border border-slate-400 p-2 text-center ${
                         !isAssignedToThisInstructor &&
                         isInstructor
                           ? 'bg-slate-100/70 cursor-not-allowed select-none'
@@ -1397,31 +1397,27 @@ export default function Page() {
                       {isAssignedToThisInstructor ? (
                         <input
                           type="text"
-                          value={subj.grades}
-                          onChange={(e) =>
+                          value={subject.grades}
+                          onChange={(event) =>
                             handleSubjectChange(
-                              subj.id,
+                              subject.id,
                               'grades',
-                              e.target.value
+                              event.target.value
                             )
                           }
                           suppressHydrationWarning
-                          className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 text-center print:border-none print:bg-transparent print:p-0 font-semibold"
+                          className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 text-center font-semibold"
                           placeholder="Grade"
                         />
                       ) : (
-                        <span
-                          className="text-slate-800 font-semibold text-xs print:text-slate-900 print:not-italic"
-                          suppressHydrationWarning
-                        >
-                          {subj.grades || '—'}
+                        <span className="text-slate-800 font-semibold text-xs">
+                          {subject.grades || '—'}
                         </span>
                       )}
                     </td>
 
-                    {/* Remarks */}
                     <td
-                      className={`relative group border border-slate-400 p-2 text-center print:p-2 ${
+                      className={`relative group border border-slate-400 p-2 text-center ${
                         !isAssignedToThisInstructor &&
                         isInstructor
                           ? 'bg-slate-100/70 cursor-not-allowed select-none'
@@ -1438,31 +1434,27 @@ export default function Page() {
                       {isAssignedToThisInstructor ? (
                         <input
                           type="text"
-                          value={subj.remarks}
-                          onChange={(e) =>
+                          value={subject.remarks}
+                          onChange={(event) =>
                             handleSubjectChange(
-                              subj.id,
+                              subject.id,
                               'remarks',
-                              e.target.value
+                              event.target.value
                             )
                           }
                           suppressHydrationWarning
-                          className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 text-center print:border-none print:bg-transparent print:p-0"
+                          className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 text-center"
                           placeholder="Remarks"
                         />
                       ) : (
-                        <span
-                          className="text-slate-800 text-xs print:text-slate-900 print:not-italic"
-                          suppressHydrationWarning
-                        >
-                          {subj.remarks || '—'}
+                        <span className="text-slate-800 text-xs">
+                          {subject.remarks || '—'}
                         </span>
                       )}
                     </td>
 
-                    {/* Signature */}
                     <td
-                      className={`relative group border border-slate-400 p-2 text-center print:p-2 ${
+                      className={`relative group border border-slate-400 p-2 text-center ${
                         !isAssignedToThisInstructor &&
                         isInstructor
                           ? 'bg-slate-100/70 cursor-not-allowed select-none'
@@ -1479,45 +1471,42 @@ export default function Page() {
                       {isAssignedToThisInstructor ? (
                         <input
                           type="text"
-                          value={subj.signature}
-                          onChange={(e) =>
+                          value={subject.signature}
+                          onChange={(event) =>
                             handleSubjectChange(
-                              subj.id,
+                              subject.id,
                               'signature',
-                              e.target.value
+                              event.target.value
                             )
                           }
                           suppressHydrationWarning
-                          className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 text-center print:border-none print:bg-transparent print:p-0"
+                          className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 text-center"
                           placeholder="Sign"
                         />
                       ) : (
-                        <span
-                          className="text-slate-800 text-xs print:text-slate-900 print:not-italic flex items-center justify-center"
-                          suppressHydrationWarning
-                        >
-                          {subj.signature &&
-                          subj.signature.startsWith(
+                        <span className="text-slate-800 text-xs flex items-center justify-center">
+                          {subject.signature &&
+                          subject.signature.startsWith(
                             'data:image/'
                           ) ? (
                             <img
-                              src={subj.signature}
+                              src={subject.signature}
                               alt="Instructor Signature"
                               className="h-8 w-24 object-contain"
                             />
                           ) : (
-                            subj.signature || '—'
+                            subject.signature ||
+                            '—'
                           )}
                         </span>
                       )}
                     </td>
 
-                    {/* Delete Subject */}
                     <td className="border border-slate-400 p-2 text-center print:hidden">
                       <button
                         onClick={() =>
                           handleDeleteSubject(
-                            subj.id
+                            subject.id
                           )
                         }
                         disabled={saving || sharing}
@@ -1535,6 +1524,7 @@ export default function Page() {
         </div>
 
         {/* Footer Note */}
+
         <div className="mt-12 text-xs text-slate-500 text-center print:mt-16">
           <p>
             This is an official clearance document
@@ -1544,10 +1534,10 @@ export default function Page() {
       </div>
 
       {/* Instructor Selection Modal */}
+
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 print:hidden">
           <div className="w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200 p-6 flex flex-col max-h-[80vh]">
-
             <div className="flex justify-between items-center mb-1">
               <h2 className="text-base font-semibold text-slate-900">
                 Select Instructor to Share
@@ -1572,8 +1562,10 @@ export default function Page() {
               type="text"
               placeholder="Search by name or email..."
               value={searchQuery}
-              onChange={(e) =>
-                setSearchQuery(e.target.value)
+              onChange={(event) =>
+                setSearchQuery(
+                  event.target.value
+                )
               }
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-slate-400"
             />
@@ -1585,27 +1577,27 @@ export default function Page() {
                 </p>
               ) : (
                 filteredInstructors.map(
-                  (inst) => (
+                  (instructor) => (
                     <div
-                      key={inst.id}
+                      key={instructor.id}
                       onClick={() =>
                         setSelectedInstructor(
-                          inst
+                          instructor
                         )
                       }
                       className={`p-3 rounded-lg border cursor-pointer transition flex flex-col ${
                         selectedInstructor?.id ===
-                        inst.id
+                        instructor.id
                           ? 'border-slate-900 bg-slate-50 shadow-sm'
                           : 'border-slate-200 hover:bg-slate-50'
                       }`}
                     >
                       <span className="font-medium text-slate-800 text-sm">
-                        {inst.name}
+                        {instructor.name}
                       </span>
 
                       <span className="text-xs text-slate-500">
-                        {inst.email}
+                        {instructor.email}
                       </span>
                     </div>
                   )

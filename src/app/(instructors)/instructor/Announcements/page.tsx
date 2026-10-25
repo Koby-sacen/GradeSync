@@ -1,4 +1,3 @@
-
 'use client'
 
 import React, {
@@ -579,12 +578,6 @@ export default function Announcements() {
         announcement.important
     ).length
 
-  const pinnedCount =
-    announcements.filter(
-      (announcement) =>
-        announcement.pinned
-    ).length
-
   const sevenDaysAgo =
     currentTime -
     7 * 24 * 60 * 60 * 1000
@@ -734,83 +727,6 @@ export default function Announcements() {
           <div className="inline-flex items-center gap-2 self-start rounded-xl border border-blue-100 bg-white px-4 py-3 text-xs font-semibold text-blue-700 shadow-sm">
             <RefreshCw size={15} />
             Live announcements
-          </div>
-        </div>
-
-        {/* Statistics */}
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-
-          {/* Total */}
-
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Total Announcements
-                </p>
-
-                <p className="mt-3 text-3xl font-bold tracking-tight text-slate-900">
-                  {totalCount}
-                </p>
-
-                <p className="mt-1 text-xs text-slate-400">
-                  Available announcements
-                </p>
-              </div>
-
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                <Megaphone size={21} />
-              </div>
-            </div>
-          </div>
-
-          {/* Important */}
-
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Important
-                </p>
-
-                <p className="mt-3 text-3xl font-bold tracking-tight text-amber-600">
-                  {importantCount}
-                </p>
-
-                <p className="mt-1 text-xs text-slate-400">
-                  Priority announcements
-                </p>
-              </div>
-
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-                <AlertCircle size={21} />
-              </div>
-            </div>
-          </div>
-
-          {/* Pinned */}
-
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Pinned
-                </p>
-
-                <p className="mt-3 text-3xl font-bold tracking-tight text-slate-900">
-                  {pinnedCount}
-                </p>
-
-                <p className="mt-1 text-xs text-slate-400">
-                  Highlighted notices
-                </p>
-              </div>
-
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
-                <Pin size={21} />
-              </div>
-            </div>
           </div>
         </div>
 

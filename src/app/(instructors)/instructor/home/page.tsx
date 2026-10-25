@@ -815,10 +815,10 @@ export default function InstructorHomePage() {
 
         {/* PREMIUM WELCOME BANNER */}
 
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#052e28] via-[#075345] to-[#087b66] p-6 text-white shadow-xl shadow-emerald-950/10 sm:p-8 lg:p-10">
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0b1535] via-[#172c66] to-[#204aab] p-6 text-white shadow-xl shadow-blue-950/10 sm:p-8 lg:p-10">
           <div className="pointer-events-none absolute -right-16 -top-24 h-80 w-80 rounded-full border border-white/10" />
           <div className="pointer-events-none absolute -right-4 -top-12 h-64 w-64 rounded-full border border-white/10" />
-          <div className="pointer-events-none absolute bottom-0 right-20 h-48 w-48 rounded-full bg-emerald-300/10 blur-3xl" />
+          <div className="pointer-events-none absolute bottom-0 right-20 h-48 w-48 rounded-full bg-blue-300/10 blur-3xl" />
 
           <div className="relative z-10 grid gap-8 lg:grid-cols-[1fr_300px] lg:items-center">
             <div>
@@ -840,7 +840,7 @@ export default function InstructorHomePage() {
                 </div>
 
                 <div>
-                  <p className="text-sm text-emerald-100/80">
+                  <p className="text-sm text-blue-100/80">
                     {mounted ? getGreeting() : 'Welcome back'},
                   </p>
 
@@ -850,19 +850,19 @@ export default function InstructorHomePage() {
                 </div>
               </div>
 
-              <div className="mt-7 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-100">
+              <div className="mt-7 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-blue-100">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Verified Instructor
               </div>
 
               <h3 className="mt-5 max-w-xl text-2xl font-bold leading-tight tracking-tight sm:text-3xl lg:text-4xl">
                 Review clearance responsibilities,
-                <span className="block text-emerald-200">
+                <span className="block text-blue-200">
                   wherever you are.
                 </span>
               </h3>
 
-              <p className="mt-4 max-w-xl text-sm leading-relaxed text-emerald-50/80 sm:text-base">
+              <p className="mt-4 max-w-xl text-sm leading-relaxed text-blue-50/80 sm:text-base">
                 Stay organized, track clearance progress, and help students
                 complete their academic requirements efficiently.
               </p>
@@ -870,7 +870,7 @@ export default function InstructorHomePage() {
               <div className="mt-6 flex flex-wrap gap-3">
                 <Link
                   href={CLEARANCE_ROUTE}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-emerald-950 transition hover:bg-emerald-50"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-blue-950 transition hover:bg-blue-50"
                 >
                   <ClipboardCheck className="h-4 w-4" />
                   Manage Clearances
@@ -886,20 +886,20 @@ export default function InstructorHomePage() {
 
             <div className="rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-sm">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-100/80">
+                <p className="text-xs font-semibold uppercase tracking-wider text-blue-100/80">
                   Workload Completion
                 </p>
-                <Sparkles className="h-5 w-5 text-emerald-200" />
+                <Sparkles className="h-5 w-5 text-blue-200" />
               </div>
 
               <div className="mt-6 flex items-center gap-5">
                 <div
                   className="relative flex h-24 w-24 shrink-0 items-center justify-center rounded-full"
                   style={{
-                    background: `conic-gradient(#a7f3d0 ${stats.progress}%, rgba(255,255,255,0.15) ${stats.progress}%)`,
+                    background: `conic-gradient(#93c5fd ${stats.progress}%, rgba(255,255,255,0.15) ${stats.progress}%)`,
                   }}
                 >
-                  <div className="flex h-[76px] w-[76px] items-center justify-center rounded-full bg-[#075345]">
+                  <div className="flex h-[76px] w-[76px] items-center justify-center rounded-full bg-[#172c66]">
                     <span className="text-2xl font-bold">
                       {fetchingRequests
                         ? '...'
@@ -912,7 +912,7 @@ export default function InstructorHomePage() {
                   <p className="text-base font-bold">
                     Overall Progress
                   </p>
-                  <p className="mt-1 text-xs leading-relaxed text-emerald-100/75">
+                  <p className="mt-1 text-xs leading-relaxed text-blue-100/75">
                     {fetchingRequests
                       ? 'Loading assigned subjects...'
                       : `${stats.completedSubjects} of ${stats.totalSubjects} subject assignments completed`}
@@ -922,14 +922,14 @@ export default function InstructorHomePage() {
 
               <div className="mt-6 h-2 overflow-hidden rounded-full bg-white/15">
                 <div
-                  className="h-full rounded-full bg-emerald-200 transition-all duration-500"
+                  className="h-full rounded-full bg-blue-300 transition-all duration-500"
                   style={{ width: `${stats.progress}%` }}
                 />
               </div>
 
               <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4">
                 <div>
-                  <p className="text-xs text-emerald-100/70">
+                  <p className="text-xs text-blue-100/70">
                     Completed
                   </p>
                   <p className="mt-1 text-xl font-bold">
@@ -938,7 +938,7 @@ export default function InstructorHomePage() {
                 </div>
 
                 <div>
-                  <p className="text-xs text-emerald-100/70">
+                  <p className="text-xs text-blue-100/70">
                     Remaining
                   </p>
                   <p className="mt-1 text-xl font-bold">
@@ -949,6 +949,7 @@ export default function InstructorHomePage() {
             </div>
           </div>
         </div>
+
 
         {/* DATA ERROR */}
 

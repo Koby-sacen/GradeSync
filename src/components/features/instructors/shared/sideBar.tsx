@@ -33,8 +33,11 @@ import {
 } from 'firebase/auth'
 
 import {
+  collection,
   doc,
   onSnapshot,
+  query,
+  where,
 } from 'firebase/firestore'
 
 import { auth, db } from '@/lib/firebase'
@@ -62,6 +65,20 @@ interface NavigationLink {
 interface NavigationSection {
   title: string
   links: NavigationLink[]
+}
+
+interface ClearanceSubject {
+  instructorId?: string
+}
+
+interface ClearanceRequestData {
+  status?: string
+  instructorId?: string
+  instructorUid?: string
+  sharedWithUid?: string
+  instructorEmail?: string
+  sharedWithEmail?: string
+  subjects?: ClearanceSubject[]
 }
 
 // Navigation sections
@@ -150,6 +167,50 @@ function getGoogleProvider(
   )
 }
 
+function isPendingStatus(
+  status: unknown
+): boolean {
+  return (
+    getText(status).toLowerCase() === 'pending'
+  )
+}
+
+function isRequestAssignedToInstructor(
+  request: ClearanceRequestData,
+  instructorUid: string,
+  instructorEmail: string
+): boolean {
+  const normalizedEmail =
+    instructorEmail.toLowerCase()
+
+  const directUidMatch =
+    request.instructorId === instructorUid ||
+    request.instructorUid === instructorUid ||
+    request.sharedWithUid === instructorUid
+
+  const directEmailMatch =
+    normalizedEmail.length > 0 &&
+    (
+      getText(request.instructorEmail)
+        .toLowerCase() === normalizedEmail ||
+      getText(request.sharedWithEmail)
+        .toLowerCase() === normalizedEmail
+    )
+
+  const subjectMatch =
+    Array.isArray(request.subjects) &&
+    request.subjects.some(
+      (subject) =>
+        subject.instructorId === instructorUid
+    )
+
+  return (
+    directUidMatch ||
+    directEmailMatch ||
+    subjectMatch
+  )
+}
+
 // Instructor Sidebar
 
 export default function Sidebar() {
@@ -177,12 +238,35 @@ export default function Sidebar() {
   const [sidebarOpen, setSidebarOpen] =
     useState(false)
 
+  const [
+    unreadNotificationCount,
+    setUnreadNotificationCount,
+  ] = useState(0)
+
+  const [
+    unreadClearanceCount,
+    setUnreadClearanceCount,
+  ] = useState(0)
+
+  const [
+    pendingClearanceCount,
+    setPendingClearanceCount,
+  ] = useState(0)
+
   // Firebase authentication and live profile
 
   useEffect(() => {
     let active = true
 
     let unsubscribeProfile:
+      | (() => void)
+      | null = null
+
+    let unsubscribeNotifications:
+      | (() => void)
+      | null = null
+
+    let unsubscribeRequests:
       | (() => void)
       | null = null
 
@@ -196,9 +280,22 @@ export default function Sidebar() {
           unsubscribeProfile = null
         }
 
+        if (unsubscribeNotifications) {
+          unsubscribeNotifications()
+          unsubscribeNotifications = null
+        }
+
+        if (unsubscribeRequests) {
+          unsubscribeRequests()
+          unsubscribeRequests = null
+        }
+
         setUser(currentUser)
         setDbUserData(null)
         setImageError(false)
+        setUnreadNotificationCount(0)
+        setUnreadClearanceCount(0)
+        setPendingClearanceCount(0)
 
         if (!currentUser) {
           setLoading(false)
@@ -240,15 +337,142 @@ export default function Sidebar() {
             setLoading(false)
           }
         )
+
+        // Live notifications and clearance notifications
+
+        const notificationsQuery = query(
+          collection(db, 'Notifications'),
+          where(
+            'recipientUid',
+            '==',
+            currentUser.uid
+          )
+        )
+
+        unsubscribeNotifications = onSnapshot(
+          notificationsQuery,
+          (snapshot) => {
+            if (!active) return
+
+            let unreadNotifications = 0
+            let unreadClearances = 0
+
+            snapshot.docs.forEach(
+              (notificationDoc) => {
+                const data =
+                  notificationDoc.data()
+
+                const isUnread =
+                  data.read !== true &&
+                  data.isRead !== true
+
+                if (!isUnread) return
+
+                unreadNotifications += 1
+
+                const isClearanceRequest =
+                  data.type ===
+                    'clearance_shared' ||
+                  data.category ===
+                    'clearance'
+
+                if (isClearanceRequest) {
+                  unreadClearances += 1
+                }
+              }
+            )
+
+            setUnreadNotificationCount(
+              unreadNotifications
+            )
+
+            setUnreadClearanceCount(
+              unreadClearances
+            )
+          },
+          (error) => {
+            console.error(
+              '[Instructor Sidebar] Notification listener error:',
+              error
+            )
+
+            if (!active) return
+
+            setUnreadNotificationCount(0)
+            setUnreadClearanceCount(0)
+          }
+        )
+
+        // Live pending clearance requests
+
+        const requestsQuery = query(
+          collection(db, 'requests'),
+          where('status', '==', 'Pending')
+        )
+
+        unsubscribeRequests = onSnapshot(
+          requestsQuery,
+          (snapshot) => {
+            if (!active) return
+
+            const instructorUid =
+              currentUser.uid
+
+            const instructorEmail =
+              getText(currentUser.email)
+
+            const pendingCount =
+              snapshot.docs.filter(
+                (requestDoc) => {
+                  const requestData =
+                    requestDoc.data() as ClearanceRequestData
+
+                  return (
+                    isPendingStatus(
+                      requestData.status
+                    ) &&
+                    isRequestAssignedToInstructor(
+                      requestData,
+                      instructorUid,
+                      instructorEmail
+                    )
+                  )
+                }
+              ).length
+
+            setPendingClearanceCount(
+              pendingCount
+            )
+          },
+          (error) => {
+            console.error(
+              '[Instructor Sidebar] Pending clearance listener error:',
+              error
+            )
+
+            if (!active) return
+
+            setPendingClearanceCount(0)
+          }
+        )
       }
     )
 
     return () => {
       active = false
+
       unsubscribeAuth()
 
       if (unsubscribeProfile) {
         unsubscribeProfile()
+      }
+
+      if (unsubscribeNotifications) {
+        unsubscribeNotifications()
+      }
+
+      if (unsubscribeRequests) {
+        unsubscribeRequests()
       }
     }
   }, [])
@@ -415,6 +639,35 @@ export default function Sidebar() {
     const Icon = link.icon
     const isActive = isLinkActive(link.href)
 
+    const isNotificationsLink =
+      link.href === '/instructor/Notifications'
+
+    const isClearanceLink =
+      link.href === '/instructor/clearance'
+
+    const notificationCount =
+      isNotificationsLink
+        ? unreadNotificationCount
+        : isClearanceLink
+          ? pendingClearanceCount
+          : 0
+
+    const hasUnreadItems =
+      notificationCount > 0
+
+    const hasUnreadClearanceNotifications =
+      isClearanceLink &&
+      unreadClearanceCount > 0
+
+    const hasPendingClearances =
+      isClearanceLink &&
+      pendingClearanceCount > 0
+
+    const showBlinkingDot =
+      hasUnreadItems ||
+      hasUnreadClearanceNotifications ||
+      hasPendingClearances
+
     return (
       <Link
         key={link.href}
@@ -430,18 +683,50 @@ export default function Sidebar() {
             : 'border-transparent text-blue-100/80 hover:border-white/10 hover:bg-white/10 hover:text-white'
         }`}
       >
-        <Icon
-          size={18}
-          className={`shrink-0 transition-colors duration-200 ${
-            isActive
-              ? 'text-blue-300'
-              : 'text-blue-400 group-hover:text-blue-200'
-          }`}
-        />
+        <span className="relative flex shrink-0 items-center justify-center">
+          <Icon
+            size={18}
+            className={`shrink-0 transition-colors duration-200 ${
+              isActive
+                ? 'text-blue-300'
+                : 'text-blue-400 group-hover:text-blue-200'
+            }`}
+          />
+
+          {showBlinkingDot && (
+            <span
+              className="absolute -right-1.5 -top-1.5 flex h-2.5 w-2.5"
+              aria-hidden="true"
+            >
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75 motion-reduce:animate-none" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-blue-950" />
+            </span>
+          )}
+        </span>
 
         <span className="min-w-0 flex-1 truncate">
           {link.name}
         </span>
+
+        {hasUnreadItems && (
+          <span
+            className="flex min-w-5 shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-sm"
+            aria-label={`${notificationCount} ${
+              isClearanceLink
+                ? 'pending clearance requests'
+                : 'unread notifications'
+            }`}
+            title={`${notificationCount} ${
+              isClearanceLink
+                ? 'pending clearance requests'
+                : 'unread notifications'
+            }`}
+          >
+            {notificationCount > 99
+              ? '99+'
+              : notificationCount}
+          </span>
+        )}
 
         {isActive && (
           <ChevronRight
@@ -473,6 +758,19 @@ export default function Sidebar() {
         }`}
       >
         <Menu size={21} aria-hidden="true" />
+
+        {(unreadNotificationCount > 0 ||
+          unreadClearanceCount > 0 ||
+          pendingClearanceCount > 0) &&
+          !sidebarOpen && (
+            <span
+              className="absolute right-1 top-1 flex h-2.5 w-2.5"
+              aria-label="Unread notifications or pending clearance requests"
+            >
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75 motion-reduce:animate-none" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-blue-900" />
+            </span>
+          )}
       </button>
 
       {/* Mobile overlay */}
@@ -501,11 +799,9 @@ export default function Sidebar() {
             : '-translate-x-full'
         }`}
       >
-
         {/* Fixed profile section */}
 
         <div className="shrink-0 px-4 pt-4 sm:px-5 sm:pt-5">
-
           {/* Mobile sidebar header */}
 
           <div className="mb-5 flex items-center justify-between lg:hidden">
@@ -527,7 +823,6 @@ export default function Sidebar() {
           {/* User information */}
 
           <div className="flex min-w-0 items-center gap-3 pb-5">
-
             {/* Profile photo */}
 
             <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-blue-400/30 bg-blue-800 shadow-md">
@@ -606,7 +901,6 @@ export default function Sidebar() {
                   key={section.title}
                   className="space-y-1"
                 >
-
                   {/* Section label */}
 
                   <div className="flex items-center gap-3 px-3.5 pb-1.5 pt-2">
@@ -642,7 +936,6 @@ export default function Sidebar() {
         {/* Fixed logout footer */}
 
         <div className="z-10 shrink-0 border-t border-blue-700/40 bg-slate-950/40 px-4 pb-4 pt-3 sm:px-5">
-
           {/* Logout button */}
 
           <button
@@ -682,12 +975,11 @@ export default function Sidebar() {
             aria-describedby="logout-description"
             className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
           >
-
             {/* Modal header */}
 
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6 sm:py-5">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
+                <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-full bg-red-50 text-red-600">
                   <AlertTriangle size={20} />
                 </div>
 

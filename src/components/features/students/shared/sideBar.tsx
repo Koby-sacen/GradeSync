@@ -33,8 +33,12 @@ import {
 } from 'firebase/auth'
 
 import {
+  collection,
   doc,
   onSnapshot,
+  query,
+  where,
+  type DocumentData,
 } from 'firebase/firestore'
 
 import { auth, db } from '@/lib/firebase'
@@ -62,6 +66,16 @@ interface NavigationLink {
 interface NavigationSection {
   title: string
   links: NavigationLink[]
+}
+
+interface NotificationRecord {
+  id: string
+  read: boolean
+}
+
+interface ClearanceRecord {
+  id: string
+  completed: boolean
 }
 
 // Navigation sections
@@ -150,6 +164,97 @@ function getGoogleProvider(
   )
 }
 
+function isSignedSubject(
+  subject: unknown
+): boolean {
+  if (
+    !subject ||
+    typeof subject !== 'object' ||
+    Array.isArray(subject)
+  ) {
+    return false
+  }
+
+  const data = subject as Record<string, unknown>
+
+  const status = getText(
+    data.status
+  ).toLowerCase()
+
+  const signature =
+    getText(data.signature) ||
+    getText(data.instructorSignature) ||
+    getText(data.signatureId)
+
+  return (
+    data.signed === true ||
+    data.isSigned === true ||
+    data.instructorSigned === true ||
+    Boolean(signature) ||
+    Boolean(data.signedAt) ||
+    status === 'signed' ||
+    status === 'approved' ||
+    status === 'completed' ||
+    status === 'complete'
+  )
+}
+
+function isFullySignedClearance(
+  data: DocumentData
+): boolean {
+  const status = getText(data.status)
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '')
+
+  if (
+    [
+      'fullysigned',
+      'allsigned',
+      'completed',
+      'complete',
+      'fullyapproved',
+    ].includes(status)
+  ) {
+    return true
+  }
+
+  if (
+    !Array.isArray(data.subjects) ||
+    data.subjects.length === 0
+  ) {
+    return false
+  }
+
+  return data.subjects.every(isSignedSubject)
+}
+
+function getViewedClearanceIds(
+  uid: string
+): string[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const saved = window.localStorage.getItem(
+      `gradesync-student-viewed-clearances-${uid}`
+    )
+
+    if (!saved) return []
+
+    const parsed: unknown = JSON.parse(saved)
+
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (item): item is string =>
+            typeof item === 'string'
+        )
+      : []
+  } catch {
+    return []
+  }
+}
+
 // Student Sidebar
 
 export default function StudentSidebar() {
@@ -176,6 +281,21 @@ export default function StudentSidebar() {
 
   const [sidebarOpen, setSidebarOpen] =
     useState(false)
+
+  const [primaryNotifications, setPrimaryNotifications] =
+    useState<NotificationRecord[]>([])
+
+  const [secondaryNotifications, setSecondaryNotifications] =
+    useState<NotificationRecord[]>([])
+
+  const [requestClearances, setRequestClearances] =
+    useState<ClearanceRecord[]>([])
+
+  const [savedClearances, setSavedClearances] =
+    useState<ClearanceRecord[]>([])
+
+  const [viewedClearanceIds, setViewedClearanceIds] =
+    useState<string[]>([])
 
   // Firebase authentication and live profile
 
@@ -252,6 +372,246 @@ export default function StudentSidebar() {
       }
     }
   }, [])
+
+  // Live student notifications
+
+  useEffect(() => {
+    if (!user) return
+
+    const uid = user.uid
+
+    const primaryQuery = query(
+      collection(db, 'Notifications'),
+      where('recipientUid', '==', uid)
+    )
+
+    const secondaryQuery = query(
+      collection(db, 'notifications'),
+      where('recipientUid', '==', uid)
+    )
+
+    const requestsQuery = query(
+      collection(db, 'requests'),
+      where('studentUid', '==', uid)
+    )
+
+    const clearancesQuery = query(
+      collection(db, 'clearances'),
+      where('studentUid', '==', uid)
+    )
+
+    const unsubscribePrimary = onSnapshot(
+      primaryQuery,
+      (snapshot) => {
+        setPrimaryNotifications(
+          snapshot.docs.map((item) => {
+            const data = item.data()
+
+            return {
+              id: item.id,
+              read:
+                data.read === true ||
+                data.isRead === true,
+            }
+          })
+        )
+      },
+      (error) => {
+        console.error(
+          '[Student Sidebar] Notifications listener error:',
+          error
+        )
+      }
+    )
+
+    const unsubscribeSecondary = onSnapshot(
+      secondaryQuery,
+      (snapshot) => {
+        setSecondaryNotifications(
+          snapshot.docs.map((item) => {
+            const data = item.data()
+
+            return {
+              id: item.id,
+              read:
+                data.read === true ||
+                data.isRead === true,
+            }
+          })
+        )
+      },
+      (error) => {
+        console.error(
+          '[Student Sidebar] Secondary notifications listener error:',
+          error
+        )
+      }
+    )
+
+    const unsubscribeRequests = onSnapshot(
+      requestsQuery,
+      (snapshot) => {
+        setRequestClearances(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            completed: isFullySignedClearance(
+              item.data()
+            ),
+          }))
+        )
+      },
+      (error) => {
+        console.error(
+          '[Student Sidebar] Requests listener error:',
+          error
+        )
+      }
+    )
+
+    const unsubscribeClearances = onSnapshot(
+      clearancesQuery,
+      (snapshot) => {
+        setSavedClearances(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            completed: isFullySignedClearance(
+              item.data()
+            ),
+          }))
+        )
+      },
+      (error) => {
+        console.error(
+          '[Student Sidebar] Clearances listener error:',
+          error
+        )
+      }
+    )
+
+    return () => {
+      unsubscribePrimary()
+      unsubscribeSecondary()
+      unsubscribeRequests()
+      unsubscribeClearances()
+    }
+  }, [user])
+
+  // Sync viewed clearance state
+
+  useEffect(() => {
+    if (!user) return
+
+    const uid = user.uid
+
+    const syncViewedClearances = () => {
+      setViewedClearanceIds(
+        getViewedClearanceIds(uid)
+      )
+    }
+
+    const handleStorage = (
+      event: StorageEvent
+    ) => {
+      if (
+        event.key ===
+        `gradesync-student-viewed-clearances-${uid}`
+      ) {
+        syncViewedClearances()
+      }
+    }
+
+    const handleFocus = () => {
+      syncViewedClearances()
+    }
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        syncViewedClearances()
+      }
+    }
+
+    const handleCustomUpdate = () => {
+      syncViewedClearances()
+    }
+
+    const handleInitialSync = () => {
+      syncViewedClearances()
+    }
+
+    queueMicrotask(handleInitialSync)
+
+    window.addEventListener(
+      'storage',
+      handleStorage
+    )
+
+    window.addEventListener(
+      'focus',
+      handleFocus
+    )
+
+    window.addEventListener(
+      'gradesync-notifications-updated',
+      handleCustomUpdate
+    )
+
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibilityChange
+    )
+
+    return () => {
+      window.removeEventListener(
+        'storage',
+        handleStorage
+      )
+
+      window.removeEventListener(
+        'focus',
+        handleFocus
+      )
+
+      window.removeEventListener(
+        'gradesync-notifications-updated',
+        handleCustomUpdate
+      )
+
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange
+      )
+    }
+  }, [user])
+
+  // Notification unread count
+
+  const unreadStoredNotifications =
+    primaryNotifications.filter(
+      (notification) => !notification.read
+    ).length +
+    secondaryNotifications.filter(
+      (notification) => !notification.read
+    ).length
+
+  const completedClearanceIds = [
+    ...new Set(
+      [
+        ...requestClearances,
+        ...savedClearances,
+      ]
+        .filter((item) => item.completed)
+        .map((item) => `clearance-${item.id}`)
+    ),
+  ]
+
+  const unreadCompletedClearances =
+    completedClearanceIds.filter(
+      (id) => !viewedClearanceIds.includes(id)
+    ).length
+
+  const unreadNotificationCount =
+    unreadStoredNotifications +
+    unreadCompletedClearances
 
   // Escape key support
 
@@ -373,7 +733,7 @@ export default function StudentSidebar() {
     null
 
   const displayName =
-    getText(dbUserData?.displayName) ||
+    getText(dbUserData?.fullName) ||
     getText(dbUserData?.displayName) ||
     getText(dbUserData?.name) ||
     getText(user?.displayName) ||
@@ -413,6 +773,13 @@ export default function StudentSidebar() {
     const Icon = link.icon
     const isActive = isLinkActive(link.href)
 
+    const isNotificationsLink =
+      link.href === '/students/Notifications'
+
+    const showNotificationBadge =
+      isNotificationsLink &&
+      unreadNotificationCount > 0
+
     return (
       <Link
         key={link.href}
@@ -427,18 +794,42 @@ export default function StudentSidebar() {
             : 'border-transparent text-emerald-100/80 hover:border-white/10 hover:bg-white/10 hover:text-white'
         }`}
       >
-        <Icon
-          size={18}
-          className={`shrink-0 transition-colors duration-200 ${
-            isActive
-              ? 'text-emerald-300'
-              : 'text-emerald-400 group-hover:text-emerald-200'
-          }`}
-        />
+        <span className="relative shrink-0">
+          <Icon
+            size={18}
+            className={`shrink-0 transition-colors duration-200 ${
+              isActive
+                ? 'text-emerald-300'
+                : 'text-emerald-400 group-hover:text-emerald-200'
+            }`}
+          />
+
+          {showNotificationBadge && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75 motion-reduce:animate-none" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500 ring-1 ring-emerald-900" />
+            </span>
+          )}
+        </span>
 
         <span className="min-w-0 flex-1 truncate">
           {link.name}
         </span>
+
+        {showNotificationBadge && (
+          <span
+            className="relative inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold text-white shadow-sm"
+            aria-label={`${unreadNotificationCount} unread notifications`}
+          >
+            <span className="absolute inset-0 animate-ping rounded-full bg-red-500 opacity-20 motion-reduce:animate-none" />
+
+            <span className="relative">
+              {unreadNotificationCount > 99
+                ? '99+'
+                : unreadNotificationCount}
+            </span>
+          </span>
+        )}
 
         {isActive && (
           <ChevronRight
@@ -469,6 +860,13 @@ export default function StudentSidebar() {
         }`}
       >
         <Menu size={21} aria-hidden="true" />
+
+        {unreadNotificationCount > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-3 w-3">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75 motion-reduce:animate-none" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500 ring-2 ring-white" />
+          </span>
+        )}
       </button>
 
       {/* Mobile overlay */}
@@ -495,7 +893,6 @@ export default function StudentSidebar() {
             : '-translate-x-full'
         }`}
       >
-
         {/* Fixed profile section */}
 
         <div className="shrink-0 px-4 pt-4 sm:px-5 sm:pt-5">

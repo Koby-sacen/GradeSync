@@ -1,4 +1,3 @@
-
 'use client'
 
 import React, {
@@ -63,6 +62,11 @@ type NotificationCategory =
   | 'message'
   | 'general'
 
+type NotificationSource =
+  | 'Notifications'
+  | 'notifications'
+  | 'clearance'
+
 interface StudentNotification {
   id: string
   title: string
@@ -73,6 +77,7 @@ interface StudentNotification {
   createdAt: unknown
   link: string
   senderName: string
+  source: NotificationSource
 }
 
 type NotificationIcon = React.ComponentType<{
@@ -87,10 +92,48 @@ type NotificationFeedState = {
   error: string
 }
 
+type ClearanceFeedState = {
+  ownerUid: string | null
+  records: StudentNotification[]
+  loading: boolean
+  error: string
+}
+
+type ClearanceSubject = {
+  signature?: unknown
+  signed?: unknown
+  isSigned?: unknown
+  signedAt?: unknown
+  signatureId?: unknown
+  status?: unknown
+  remarks?: unknown
+  instructorSignature?: unknown
+  instructorSigned?: unknown
+}
+
+type ClearanceData = DocumentData & {
+  status?: unknown
+  subjects?: unknown
+  studentUid?: unknown
+  studentId?: unknown
+  completedAt?: unknown
+  fullySignedAt?: unknown
+  signedAt?: unknown
+  updatedAt?: unknown
+  createdAt?: unknown
+  emailSent?: unknown
+  emailStatus?: unknown
+  emailSentAt?: unknown
+  notificationEmailSent?: unknown
+  notificationEmailStatus?: unknown
+}
+
 // Helpers
 
 function getText(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : ''
+  return typeof value === 'string'
+    ? value.trim()
+    : ''
 }
 
 function getDate(value: unknown): Date | null {
@@ -101,7 +144,9 @@ function getDate(value: unknown): Date | null {
   }
 
   if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value
+    return Number.isNaN(value.getTime())
+      ? null
+      : value
   }
 
   if (
@@ -118,7 +163,10 @@ function getDate(value: unknown): Date | null {
     typeof value === 'number'
   ) {
     const date = new Date(value)
-    return Number.isNaN(date.getTime()) ? null : date
+
+    return Number.isNaN(date.getTime())
+      ? null
+      : date
   }
 
   return null
@@ -126,6 +174,7 @@ function getDate(value: unknown): Date | null {
 
 function formatDate(value: unknown): string {
   const date = getDate(value)
+
   if (!date) return 'Date unavailable'
 
   return date.toLocaleString('en-PH', {
@@ -139,6 +188,7 @@ function formatDate(value: unknown): string {
 
 function formatRelativeTime(value: unknown): string {
   const date = getDate(value)
+
   if (!date) return 'Recently'
 
   const difference = Date.now() - date.getTime()
@@ -163,7 +213,9 @@ function formatRelativeTime(value: unknown): string {
   })
 }
 
-function getCategory(type: string): NotificationCategory {
+function getCategory(
+  type: string
+): NotificationCategory {
   const normalized = type.toLowerCase()
 
   if (
@@ -212,17 +264,33 @@ function getNotificationIcon(
   category: NotificationCategory,
   type: string
 ): NotificationIcon {
-  if (category === 'signature') return FileCheck2
+  if (category === 'signature') {
+    return FileCheck2
+  }
 
   if (category === 'clearance') {
-    if (type.includes('approved')) return CheckCircle2
-    if (type.includes('updated')) return FilePenLine
+    if (type.includes('approved')) {
+      return CheckCircle2
+    }
+
+    if (type.includes('updated')) {
+      return FilePenLine
+    }
+
     return FileText
   }
 
-  if (category === 'announcement') return Megaphone
-  if (category === 'account') return ShieldCheck
-  if (category === 'message') return MessageSquare
+  if (category === 'announcement') {
+    return Megaphone
+  }
+
+  if (category === 'account') {
+    return ShieldCheck
+  }
+
+  if (category === 'message') {
+    return MessageSquare
+  }
 
   return Bell
 }
@@ -238,48 +306,56 @@ function getCategoryStyle(
     case 'signature':
       return {
         icon: 'bg-violet-50 text-violet-700',
-        badge: 'bg-violet-50 text-violet-700 border-violet-100',
+        badge:
+          'bg-violet-50 text-violet-700 border-violet-100',
         label: 'Signature',
       }
 
     case 'clearance':
       return {
         icon: 'bg-emerald-50 text-emerald-700',
-        badge: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+        badge:
+          'bg-emerald-50 text-emerald-700 border-emerald-100',
         label: 'Clearance',
       }
 
     case 'announcement':
       return {
         icon: 'bg-blue-50 text-blue-700',
-        badge: 'bg-blue-50 text-blue-700 border-blue-100',
+        badge:
+          'bg-blue-50 text-blue-700 border-blue-100',
         label: 'Announcement',
       }
 
     case 'account':
       return {
         icon: 'bg-amber-50 text-amber-700',
-        badge: 'bg-amber-50 text-amber-700 border-amber-100',
+        badge:
+          'bg-amber-50 text-amber-700 border-amber-100',
         label: 'Account',
       }
 
     case 'message':
       return {
         icon: 'bg-cyan-50 text-cyan-700',
-        badge: 'bg-cyan-50 text-cyan-700 border-cyan-100',
+        badge:
+          'bg-cyan-50 text-cyan-700 border-cyan-100',
         label: 'Message',
       }
 
     default:
       return {
         icon: 'bg-slate-100 text-slate-600',
-        badge: 'bg-slate-100 text-slate-600 border-slate-200',
+        badge:
+          'bg-slate-100 text-slate-600 border-slate-200',
         label: 'General',
       }
   }
 }
 
-function safeNotificationLink(value: unknown): string {
+function safeNotificationLink(
+  value: unknown
+): string {
   const link = getText(value)
 
   if (
@@ -295,12 +371,32 @@ function safeNotificationLink(value: unknown): string {
 
 function mapNotification(
   id: string,
-  data: DocumentData
+  data: DocumentData,
+  source: NotificationSource
 ): StudentNotification {
   const type =
     getText(data.type) ||
     getText(data.action) ||
     'general'
+
+  const categoryText =
+    getText(data.category).toLowerCase()
+
+  const validCategories: NotificationCategory[] = [
+    'clearance',
+    'signature',
+    'announcement',
+    'account',
+    'message',
+    'general',
+  ]
+
+  const category =
+    validCategories.includes(
+      categoryText as NotificationCategory
+    )
+      ? (categoryText as NotificationCategory)
+      : getCategory(type)
 
   return {
     id,
@@ -313,15 +409,247 @@ function mapNotification(
       getText(data.description) ||
       'You have a new notification.',
     type: type.toLowerCase(),
-    category: getCategory(type),
-    read: data.read === true || data.isRead === true,
-    createdAt: data.createdAt ?? data.timestamp ?? null,
-    link: safeNotificationLink(data.link || data.href),
+    category,
+    read:
+      data.read === true ||
+      data.isRead === true,
+    createdAt:
+      data.createdAt ??
+      data.timestamp ??
+      null,
+    link: safeNotificationLink(
+      data.link || data.href
+    ),
     senderName:
       getText(data.senderName) ||
       getText(data.actorName) ||
       'GradeSync',
+    source,
   }
+}
+
+function isSignedSubject(
+  subject: ClearanceSubject
+): boolean {
+  const status = getText(
+    subject.status
+  ).toLowerCase()
+
+  const signature =
+    getText(subject.signature) ||
+    getText(subject.instructorSignature) ||
+    getText(subject.signatureId)
+
+  return (
+    subject.signed === true ||
+    subject.isSigned === true ||
+    subject.instructorSigned === true ||
+    status === 'signed' ||
+    status === 'approved' ||
+    status === 'completed' ||
+    status === 'complete' ||
+    Boolean(signature) ||
+    Boolean(getDate(subject.signedAt))
+  )
+}
+
+function isFullySignedClearance(
+  data: ClearanceData
+): boolean {
+  const status = getText(
+    data.status
+  )
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '')
+
+  const explicitCompletedStatus = [
+    'fullysigned',
+    'allsigned',
+    'completed',
+    'complete',
+    'fullyapproved',
+  ].includes(status)
+
+  if (explicitCompletedStatus) {
+    return true
+  }
+
+  if (!Array.isArray(data.subjects)) {
+    return false
+  }
+
+  if (data.subjects.length === 0) {
+    return false
+  }
+
+  return data.subjects.every(
+    (subject: unknown) => {
+      if (
+        !subject ||
+        typeof subject !== 'object' ||
+        Array.isArray(subject)
+      ) {
+        return false
+      }
+
+      return isSignedSubject(
+        subject as ClearanceSubject
+      )
+    }
+  )
+}
+
+function wasEmailSent(
+  data: ClearanceData
+): boolean {
+  const emailStatus = getText(
+    data.emailStatus
+  ).toLowerCase()
+
+  const notificationEmailStatus = getText(
+    data.notificationEmailStatus
+  ).toLowerCase()
+
+  return (
+    data.emailSent === true ||
+    data.notificationEmailSent === true ||
+    Boolean(getDate(data.emailSentAt)) ||
+    emailStatus === 'sent' ||
+    emailStatus === 'delivered' ||
+    notificationEmailStatus === 'sent' ||
+    notificationEmailStatus === 'delivered'
+  )
+}
+
+function mapCompletedClearance(
+  id: string,
+  data: ClearanceData,
+  studentEmail: string
+): StudentNotification {
+  const emailConfirmed = wasEmailSent(data)
+
+  const emailMessage = emailConfirmed
+    ? `A notification email has been sent to your email address${studentEmail ? ` (${studentEmail})` : ''}.`
+    : `You can check your registered email address${studentEmail ? ` (${studentEmail})` : ''} for further updates. Email delivery has not yet been confirmed.`
+
+  return {
+    id: `clearance-${id}`,
+    title: 'Your Clearance Is Fully Signed!',
+    message:
+      'Congratulations! Your clearance has been signed by all required instructors. Your clearance is now fully signed and ready for your next step.\n\n' +
+      emailMessage +
+      '\n\nYou may review your clearance in the Create Clearance page.',
+    type: 'clearance_fully_signed',
+    category: 'signature',
+    read: false,
+    createdAt:
+      data.fullySignedAt ??
+      data.completedAt ??
+      data.signedAt ??
+      data.updatedAt ??
+      data.createdAt ??
+      null,
+    link: '/students/Clearance',
+    senderName: 'GradeSync',
+    source: 'clearance',
+  }
+}
+
+function sortNotifications(
+  records: StudentNotification[]
+): StudentNotification[] {
+  return [...records].sort((a, b) => {
+    const aTime =
+      getDate(a.createdAt)?.getTime() ?? 0
+
+    const bTime =
+      getDate(b.createdAt)?.getTime() ?? 0
+
+    return bTime - aTime
+  })
+}
+
+function getNotificationKey(
+  notification: StudentNotification
+): string {
+  return `${notification.source}:${notification.id}`
+}
+
+function getClearanceReference(
+  notification: StudentNotification
+): string {
+  if (notification.source === 'clearance') {
+    return notification.id.replace(
+      /^clearance-/,
+      ''
+    )
+  }
+
+  return ''
+}
+
+// Persistent clearance notification read status
+
+function getViewedClearanceStorageKey(
+  uid: string
+): string {
+  return `gradesync-student-viewed-clearances-${uid}`
+}
+
+function loadViewedClearanceIds(
+  uid: string
+): string[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const saved = window.localStorage.getItem(
+      getViewedClearanceStorageKey(uid)
+    )
+
+    if (!saved) {
+      return []
+    }
+
+    const parsed: unknown = JSON.parse(saved)
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed.filter(
+      (value): value is string =>
+        typeof value === 'string'
+    )
+  } catch (error) {
+    console.error(
+      '[Notifications] Failed to load saved read status:',
+      error
+    )
+
+    return []
+  }
+}
+
+function saveViewedClearanceIds(
+  uid: string,
+  ids: string[]
+): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const uniqueIds = [...new Set(ids)]
+
+  window.localStorage.setItem(
+    getViewedClearanceStorageKey(uid),
+    JSON.stringify(uniqueIds)
+  )
+
+  window.dispatchEvent(
+    new Event('gradesync-notifications-updated')
+  )
 }
 
 // Notifications page
@@ -329,42 +657,94 @@ function mapNotification(
 export default function Notifications() {
   const router = useRouter()
 
-  const [user, setUser] = useState<User | null>(null)
-  const [authLoading, setAuthLoading] = useState(true)
+  const [user, setUser] =
+    useState<User | null>(null)
 
-  const [notificationFeed, setNotificationFeed] =
-    useState<NotificationFeedState>({
-      ownerUid: null,
-      records: [],
-      loading: true,
-      error: '',
-    })
+  const [authLoading, setAuthLoading] =
+    useState(true)
+
+  const [
+    notificationFeed,
+    setNotificationFeed,
+  ] = useState<NotificationFeedState>({
+    ownerUid: null,
+    records: [],
+    loading: true,
+    error: '',
+  })
+
+  const [
+    lowercaseNotificationFeed,
+    setLowercaseNotificationFeed,
+  ] = useState<NotificationFeedState>({
+    ownerUid: null,
+    records: [],
+    loading: true,
+    error: '',
+  })
+
+  const [
+    clearanceFeed,
+    setClearanceFeed,
+  ] = useState<ClearanceFeedState>({
+    ownerUid: null,
+    records: [],
+    loading: true,
+    error: '',
+  })
+
+  const [
+    secondaryClearanceFeed,
+    setSecondaryClearanceFeed,
+  ] = useState<ClearanceFeedState>({
+    ownerUid: null,
+    records: [],
+    loading: true,
+    error: '',
+  })
 
   const [filter, setFilter] =
     useState<NotificationFilter>('all')
-  const [search, setSearch] = useState('')
-  const [errorMessage, setErrorMessage] = useState('')
-  const [successMessage, setSuccessMessage] = useState('')
-  const [processingIds, setProcessingIds] =
-    useState<string[]>([])
-  const [markingAll, setMarkingAll] = useState(false)
-  const [selectedNotification, setSelectedNotification] =
-    useState<StudentNotification | null>(null)
 
-  const notifications =
-    notificationFeed.ownerUid === user?.uid
-      ? notificationFeed.records
-      : []
+  const [search, setSearch] =
+    useState('')
 
-  const notificationsLoading =
-    notificationFeed.ownerUid !== user?.uid ||
-    notificationFeed.loading
+  const [
+    errorMessage,
+    setErrorMessage,
+  ] = useState('')
 
-  const displayedError =
-    errorMessage ||
-    (notificationFeed.ownerUid === user?.uid
-      ? notificationFeed.error
-      : '')
+  const [
+    successMessage,
+    setSuccessMessage,
+  ] = useState('')
+
+  const [
+    processingIds,
+    setProcessingIds,
+  ] = useState<string[]>([])
+
+  const [
+    markingAll,
+    setMarkingAll,
+  ] = useState(false)
+
+  const [
+    selectedNotification,
+    setSelectedNotification,
+  ] = useState<StudentNotification | null>(
+    null
+  )
+
+  const [
+    viewedClearanceIds,
+    setViewedClearanceIds,
+  ] = useState<string[]>([])
+
+  const [
+    viewedClearanceOwnerUid,
+    setViewedClearanceOwnerUid,
+  ] = useState<string | null>(null)
 
   // Authentication and role verification
 
@@ -385,7 +765,11 @@ export default function Notifications() {
 
         try {
           const userSnapshot = await getDoc(
-            doc(db, 'users', currentUser.uid)
+            doc(
+              db,
+              'users',
+              currentUser.uid
+            )
           )
 
           if (!active) return
@@ -397,14 +781,18 @@ export default function Notifications() {
             return
           }
 
-          const role = getText(userSnapshot.data().role)
+          const role = getText(
+            userSnapshot.data().role
+          ).toLowerCase()
 
           if (role !== 'student') {
             setUser(null)
             setAuthLoading(false)
 
             if (role === 'instructor') {
-              router.replace('/instructor/home')
+              router.replace(
+                '/instructor/home'
+              )
             } else {
               router.replace('/login')
             }
@@ -439,7 +827,62 @@ export default function Notifications() {
     }
   }, [router])
 
-  // Real-time Firestore notifications without synchronous effect state updates
+  // Restore read clearance notifications after refresh
+
+  useEffect(() => {
+    if (!user) return
+
+    const uid = user.uid
+
+    const restoreReadStatus = () => {
+      setViewedClearanceIds(
+        loadViewedClearanceIds(uid)
+      )
+
+      setViewedClearanceOwnerUid(uid)
+    }
+
+    queueMicrotask(restoreReadStatus)
+
+    const handleStorage = (
+      event: StorageEvent
+    ) => {
+      if (
+        event.key ===
+        getViewedClearanceStorageKey(uid)
+      ) {
+        restoreReadStatus()
+      }
+    }
+
+    const handleNotificationUpdate = () => {
+      restoreReadStatus()
+    }
+
+    window.addEventListener(
+      'storage',
+      handleStorage
+    )
+
+    window.addEventListener(
+      'gradesync-notifications-updated',
+      handleNotificationUpdate
+    )
+
+    return () => {
+      window.removeEventListener(
+        'storage',
+        handleStorage
+      )
+
+      window.removeEventListener(
+        'gradesync-notifications-updated',
+        handleNotificationUpdate
+      )
+    }
+  }, [user])
+
+  // Real-time uppercase Notifications collection
 
   useEffect(() => {
     if (!user) return
@@ -448,35 +891,35 @@ export default function Notifications() {
 
     const notificationsQuery = query(
       collection(db, 'Notifications'),
-      where('recipientUid', '==', recipientUid)
+      where(
+        'recipientUid',
+        '==',
+        recipientUid
+      )
     )
 
     const unsubscribe = onSnapshot(
       notificationsQuery,
       (snapshot) => {
-        const records = snapshot.docs.map((document) =>
-          mapNotification(document.id, document.data())
+        const records = snapshot.docs.map(
+          (document) =>
+            mapNotification(
+              document.id,
+              document.data(),
+              'Notifications'
+            )
         )
-
-        records.sort((a, b) => {
-          const aTime =
-            getDate(a.createdAt)?.getTime() ?? 0
-          const bTime =
-            getDate(b.createdAt)?.getTime() ?? 0
-
-          return bTime - aTime
-        })
 
         setNotificationFeed({
           ownerUid: recipientUid,
-          records,
+          records: sortNotifications(records),
           loading: false,
           error: '',
         })
       },
       (error) => {
         console.error(
-          '[Notifications] Firestore listener failed:',
+          '[Notifications] Uppercase notification listener failed:',
           error
         )
 
@@ -486,8 +929,8 @@ export default function Notifications() {
           loading: false,
           error:
             error.code === 'permission-denied'
-              ? 'Permission denied. Verify your published Firestore rules and account permissions.'
-              : 'Unable to load notifications. Please check your internet connection.',
+              ? 'Permission denied when reading Notifications. Check your Firestore rules.'
+              : 'Unable to load Notifications.',
         })
       }
     )
@@ -495,65 +938,471 @@ export default function Notifications() {
     return () => unsubscribe()
   }, [user])
 
+  // Real-time lowercase notifications collection
+
+  useEffect(() => {
+    if (!user) return
+
+    const recipientUid = user.uid
+
+    const notificationsQuery = query(
+      collection(db, 'notifications'),
+      where(
+        'recipientUid',
+        '==',
+        recipientUid
+      )
+    )
+
+    const unsubscribe = onSnapshot(
+      notificationsQuery,
+      (snapshot) => {
+        const records = snapshot.docs.map(
+          (document) =>
+            mapNotification(
+              document.id,
+              document.data(),
+              'notifications'
+            )
+        )
+
+        setLowercaseNotificationFeed({
+          ownerUid: recipientUid,
+          records: sortNotifications(records),
+          loading: false,
+          error: '',
+        })
+      },
+      (error) => {
+        console.error(
+          '[Notifications] Lowercase notification listener failed:',
+          error
+        )
+
+        setLowercaseNotificationFeed({
+          ownerUid: recipientUid,
+          records: [],
+          loading: false,
+          error:
+            error.code === 'permission-denied'
+              ? 'Permission denied when reading notifications.'
+              : 'Unable to load additional notifications.',
+        })
+      }
+    )
+
+    return () => unsubscribe()
+  }, [user])
+
+  // Real-time clearance requests
+
+  useEffect(() => {
+    if (!user) return
+
+    const studentUid = user.uid
+
+    const requestsQuery = query(
+      collection(db, 'requests'),
+      where(
+        'studentUid',
+        '==',
+        studentUid
+      )
+    )
+
+    const unsubscribe = onSnapshot(
+      requestsQuery,
+      (snapshot) => {
+        const records: StudentNotification[] = []
+
+        snapshot.docs.forEach(
+          (document) => {
+            const data =
+              document.data() as ClearanceData
+
+            if (
+              isFullySignedClearance(data)
+            ) {
+              records.push(
+                mapCompletedClearance(
+                  document.id,
+                  data,
+                  user.email || ''
+                )
+              )
+            }
+          }
+        )
+
+        setClearanceFeed({
+          ownerUid: studentUid,
+          records: sortNotifications(records),
+          loading: false,
+          error: '',
+        })
+      },
+      (error) => {
+        console.error(
+          '[Notifications] Clearance requests listener failed:',
+          error
+        )
+
+        setClearanceFeed({
+          ownerUid: studentUid,
+          records: [],
+          loading: false,
+          error:
+            error.code === 'permission-denied'
+              ? 'Permission denied when checking clearance requests.'
+              : 'Unable to check clearance request updates.',
+        })
+      }
+    )
+
+    return () => unsubscribe()
+  }, [user])
+
+  // Real-time clearances collection
+
+  useEffect(() => {
+    if (!user) return
+
+    const studentUid = user.uid
+
+    const clearancesQuery = query(
+      collection(db, 'clearances'),
+      where(
+        'studentUid',
+        '==',
+        studentUid
+      )
+    )
+
+    const unsubscribe = onSnapshot(
+      clearancesQuery,
+      (snapshot) => {
+        const records: StudentNotification[] = []
+
+        snapshot.docs.forEach(
+          (document) => {
+            const data =
+              document.data() as ClearanceData
+
+            if (
+              isFullySignedClearance(data)
+            ) {
+              records.push(
+                mapCompletedClearance(
+                  document.id,
+                  data,
+                  user.email || ''
+                )
+              )
+            }
+          }
+        )
+
+        setSecondaryClearanceFeed({
+          ownerUid: studentUid,
+          records: sortNotifications(records),
+          loading: false,
+          error: '',
+        })
+      },
+      (error) => {
+        console.error(
+          '[Notifications] Clearances listener failed:',
+          error
+        )
+
+        setSecondaryClearanceFeed({
+          ownerUid: studentUid,
+          records: [],
+          loading: false,
+          error:
+            error.code === 'permission-denied'
+              ? 'Permission denied when checking saved clearances.'
+              : 'Unable to check saved clearance updates.',
+        })
+      }
+    )
+
+    return () => unsubscribe()
+  }, [user])
+
+  // Merge notification sources
+
+  const notifications = useMemo(() => {
+    if (!user) return []
+
+    const primary =
+      notificationFeed.ownerUid === user.uid
+        ? notificationFeed.records
+        : []
+
+    const secondary =
+      lowercaseNotificationFeed.ownerUid ===
+      user.uid
+        ? lowercaseNotificationFeed.records
+        : []
+
+    const requestClearances =
+      clearanceFeed.ownerUid === user.uid
+        ? clearanceFeed.records
+        : []
+
+    const savedClearances =
+      secondaryClearanceFeed.ownerUid ===
+      user.uid
+        ? secondaryClearanceFeed.records
+        : []
+
+    const allNotifications = [
+      ...primary,
+      ...secondary,
+    ]
+
+    const existingCompletionIds =
+      new Set<string>()
+
+    for (const notification of allNotifications) {
+      if (
+        notification.type.includes(
+          'fully_signed'
+        ) ||
+        notification.type.includes(
+          'all_signed'
+        ) ||
+        notification.type.includes(
+          'completed'
+        )
+      ) {
+        existingCompletionIds.add(
+          notification.id
+        )
+      }
+    }
+
+    const seenClearances =
+      new Set<string>()
+
+    const derivedClearances = [
+      ...requestClearances,
+      ...savedClearances,
+    ].filter((notification) => {
+      const reference =
+        getClearanceReference(
+          notification
+        )
+
+      if (
+        seenClearances.has(reference) ||
+        existingCompletionIds.has(
+          notification.id
+        )
+      ) {
+        return false
+      }
+
+      seenClearances.add(reference)
+
+      return true
+    })
+
+    const savedReadIds =
+      viewedClearanceOwnerUid === user.uid
+        ? viewedClearanceIds
+        : []
+
+    return sortNotifications([
+      ...allNotifications,
+      ...derivedClearances.map(
+        (notification) => ({
+          ...notification,
+          read: savedReadIds.includes(
+            notification.id
+          ),
+        })
+      ),
+    ])
+  }, [
+    user,
+    notificationFeed,
+    lowercaseNotificationFeed,
+    clearanceFeed,
+    secondaryClearanceFeed,
+    viewedClearanceIds,
+    viewedClearanceOwnerUid,
+  ])
+
+  const notificationsLoading =
+    !user ||
+    notificationFeed.ownerUid !== user.uid ||
+    notificationFeed.loading ||
+    lowercaseNotificationFeed.ownerUid !==
+      user.uid ||
+    lowercaseNotificationFeed.loading ||
+    clearanceFeed.ownerUid !== user.uid ||
+    clearanceFeed.loading ||
+    secondaryClearanceFeed.ownerUid !==
+      user.uid ||
+    secondaryClearanceFeed.loading ||
+    viewedClearanceOwnerUid !== user.uid
+
+  const displayedError =
+    errorMessage ||
+    (
+      notificationFeed.ownerUid === user?.uid
+        ? notificationFeed.error
+        : ''
+    ) ||
+    (
+      lowercaseNotificationFeed.ownerUid ===
+      user?.uid
+        ? lowercaseNotificationFeed.error
+        : ''
+    ) ||
+    (
+      clearanceFeed.ownerUid === user?.uid
+        ? clearanceFeed.error
+        : ''
+    ) ||
+    (
+      secondaryClearanceFeed.ownerUid ===
+      user?.uid
+        ? secondaryClearanceFeed.error
+        : ''
+    )
+
   // Notification statistics and filters
 
   const unreadCount = useMemo(
     () =>
       notifications.filter(
-        (notification) => !notification.read
+        (notification) =>
+          !notification.read
       ).length,
     [notifications]
   )
 
-  const readCount = notifications.length - unreadCount
+  const readCount =
+    notifications.length - unreadCount
 
   const filteredNotifications = useMemo(() => {
-    const keyword = search.trim().toLowerCase()
+    const keyword =
+      search.trim().toLowerCase()
 
-    return notifications.filter((notification) => {
-      if (filter === 'unread' && notification.read) {
-        return false
+    return notifications.filter(
+      (notification) => {
+        if (
+          filter === 'unread' &&
+          notification.read
+        ) {
+          return false
+        }
+
+        if (
+          filter === 'read' &&
+          !notification.read
+        ) {
+          return false
+        }
+
+        if (!keyword) return true
+
+        return [
+          notification.title,
+          notification.message,
+          notification.senderName,
+          notification.type,
+        ].some((value) =>
+          value
+            .toLowerCase()
+            .includes(keyword)
+        )
       }
-
-      if (filter === 'read' && !notification.read) {
-        return false
-      }
-
-      if (!keyword) return true
-
-      return [
-        notification.title,
-        notification.message,
-        notification.senderName,
-        notification.type,
-      ].some((value) =>
-        value.toLowerCase().includes(keyword)
-      )
-    })
-  }, [notifications, filter, search])
+    )
+  }, [
+    notifications,
+    filter,
+    search,
+  ])
 
   // Mark a single notification as read
 
   const markAsRead = useCallback(
-    async (notification: StudentNotification) => {
+    async (
+      notification: StudentNotification
+    ) => {
       if (
         !user ||
         notification.read ||
-        processingIds.includes(notification.id)
+        processingIds.includes(
+          getNotificationKey(notification)
+        )
       ) {
         return
       }
 
-      setProcessingIds((previous) => [
-        ...previous,
-        notification.id,
-      ])
+      if (
+        notification.source ===
+        'clearance'
+      ) {
+        try {
+          const updatedIds = [
+            ...new Set([
+              ...loadViewedClearanceIds(user.uid),
+              notification.id,
+            ]),
+          ]
+
+          saveViewedClearanceIds(
+            user.uid,
+            updatedIds
+          )
+
+          setViewedClearanceIds(
+            updatedIds
+          )
+
+          setViewedClearanceOwnerUid(
+            user.uid
+          )
+
+          return
+        } catch (error) {
+          console.error(
+            '[Notifications] Failed to save clearance read status:',
+            error
+          )
+
+          setErrorMessage(
+            'Unable to save the clearance notification read status.'
+          )
+
+          throw error
+        }
+      }
+
+      const key =
+        getNotificationKey(notification)
+
+      setProcessingIds(
+        (previous) => [
+          ...previous,
+          key,
+        ]
+      )
 
       setErrorMessage('')
 
       try {
         await updateDoc(
-          doc(db, 'Notifications', notification.id),
+          doc(
+            db,
+            notification.source,
+            notification.id
+          ),
           {
             read: true,
             isRead: true,
@@ -572,14 +1421,18 @@ export default function Notifications() {
 
         throw error
       } finally {
-        setProcessingIds((previous) =>
-          previous.filter(
-            (id) => id !== notification.id
-          )
+        setProcessingIds(
+          (previous) =>
+            previous.filter(
+              (id) => id !== key
+            )
         )
       }
     },
-    [user, processingIds]
+    [
+      user,
+      processingIds,
+    ]
   )
 
   // Open notification details
@@ -587,77 +1440,136 @@ export default function Notifications() {
   const handleOpenNotification = async (
     notification: StudentNotification
   ) => {
-    setSelectedNotification(notification)
+    setSelectedNotification(
+      notification
+    )
 
     if (!notification.read) {
       try {
-        await markAsRead(notification)
+        await markAsRead(
+          notification
+        )
       } catch {
-        // Keep details visible if the update fails.
+        // Keep details visible if updating fails.
       }
     }
   }
 
   // Mark all unread notifications as read
 
-  const handleMarkAllAsRead = async () => {
-    if (!user || markingAll || unreadCount === 0) {
-      return
-    }
-
-    setMarkingAll(true)
-    setErrorMessage('')
-    setSuccessMessage('')
-
-    try {
-      const unreadNotifications = notifications.filter(
-        (notification) => !notification.read
-      )
-
-      const chunkSize = 200
-
-      for (
-        let index = 0;
-        index < unreadNotifications.length;
-        index += chunkSize
+  const handleMarkAllAsRead =
+    async () => {
+      if (
+        !user ||
+        markingAll ||
+        unreadCount === 0
       ) {
-        const chunk = unreadNotifications.slice(
-          index,
-          index + chunkSize
-        )
-
-        const batch = writeBatch(db)
-
-        for (const notification of chunk) {
-          batch.update(
-            doc(db, 'Notifications', notification.id),
-            {
-              read: true,
-              isRead: true,
-              readAt: serverTimestamp(),
-            }
-          )
-        }
-
-        await batch.commit()
+        return
       }
 
-      setSuccessMessage(
-        'All notifications have been marked as read.'
-      )
-    } catch (error) {
-      console.error(
-        '[Notifications] Mark all as read failed:',
-        error
-      )
+      setMarkingAll(true)
+      setErrorMessage('')
+      setSuccessMessage('')
 
-      setErrorMessage(
-        'Some notifications could not be updated. Please try again.'
-      )
-    } finally {
-      setMarkingAll(false)
+      try {
+        const unreadNotifications =
+          notifications.filter(
+            (notification) =>
+              !notification.read
+          )
+
+        const derivedNotifications =
+          unreadNotifications.filter(
+            (notification) =>
+              notification.source ===
+              'clearance'
+          )
+
+        const storedNotifications =
+          unreadNotifications.filter(
+            (notification) =>
+              notification.source !==
+              'clearance'
+          )
+
+        const chunkSize = 200
+
+        for (
+          let index = 0;
+          index <
+          storedNotifications.length;
+          index += chunkSize
+        ) {
+          const chunk =
+            storedNotifications.slice(
+              index,
+              index + chunkSize
+            )
+
+          const batch =
+            writeBatch(db)
+
+          for (
+            const notification
+            of chunk
+          ) {
+            batch.update(
+              doc(
+                db,
+                notification.source,
+                notification.id
+              ),
+              {
+                read: true,
+                isRead: true,
+                readAt:
+                  serverTimestamp(),
+              }
+            )
+          }
+
+          await batch.commit()
+        }
+
+        const updatedClearanceIds = [
+          ...new Set([
+            ...loadViewedClearanceIds(user.uid),
+            ...derivedNotifications.map(
+              (notification) =>
+                notification.id
+            ),
+          ]),
+        ]
+
+        saveViewedClearanceIds(
+          user.uid,
+          updatedClearanceIds
+        )
+
+        setViewedClearanceIds(
+          updatedClearanceIds
+        )
+
+        setViewedClearanceOwnerUid(
+          user.uid
+        )
+
+        setSuccessMessage(
+          'All notifications have been marked as read.'
+        )
+      } catch (error) {
+        console.error(
+          '[Notifications] Mark all as read failed:',
+          error
+        )
+
+        setErrorMessage(
+          'Some notifications could not be updated. Please try again.'
+        )
+      } finally {
+        setMarkingAll(false)
+      }
     }
-  }
 
   // Close notification details
 
@@ -705,9 +1617,11 @@ export default function Notifications() {
               </span>
             </div>
 
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-              Notifications
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                Notifications
+              </h1>
+            </div>
 
             <p className="mt-1 text-sm text-slate-500">
               Stay informed about your clearance,
@@ -717,7 +1631,9 @@ export default function Notifications() {
 
           <button
             type="button"
-            onClick={handleMarkAllAsRead}
+            onClick={
+              handleMarkAllAsRead
+            }
             disabled={
               unreadCount === 0 ||
               markingAll ||
@@ -752,7 +1668,9 @@ export default function Notifications() {
 
             <button
               type="button"
-              onClick={() => setSuccessMessage('')}
+              onClick={() =>
+                setSuccessMessage('')
+              }
               aria-label="Dismiss success message"
             >
               <X className="h-4 w-4 text-emerald-700" />
@@ -775,7 +1693,9 @@ export default function Notifications() {
 
             <button
               type="button"
-              onClick={() => setErrorMessage('')}
+              onClick={() =>
+                setErrorMessage('')
+              }
               aria-label="Dismiss error message"
             >
               <X className="h-4 w-4 text-red-600" />
@@ -818,10 +1738,6 @@ export default function Notifications() {
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50">
                 <BellRing className="h-5 w-5 text-amber-600" />
               </div>
-
-              {unreadCount > 0 && (
-                <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-              )}
             </div>
 
             <p className="mt-4 text-3xl font-bold text-slate-900">
@@ -870,9 +1786,11 @@ export default function Notifications() {
           <div className="border-b border-slate-100 p-5 sm:p-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  Notification Inbox
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-slate-900">
+                    Notification Inbox
+                  </h2>
+                </div>
 
                 <p className="mt-1 text-xs text-slate-500">
                   Your latest GradeSync updates appear here.
@@ -886,7 +1804,9 @@ export default function Notifications() {
                   type="search"
                   value={search}
                   onChange={(event) =>
-                    setSearch(event.target.value)
+                    setSearch(
+                      event.target.value
+                    )
                   }
                   placeholder="Search notifications..."
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
@@ -915,34 +1835,41 @@ export default function Notifications() {
                   label: 'Read',
                   count: readCount,
                 },
-              ] as const).map((item) => {
-                const active = filter === item.value
+              ] as const).map(
+                (item) => {
+                  const active =
+                    filter === item.value
 
-                return (
-                  <button
-                    key={item.value}
-                    type="button"
-                    onClick={() => setFilter(item.value)}
-                    className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
-                      active
-                        ? 'bg-emerald-900 text-white'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    {item.label}
-
-                    <span
-                      className={`rounded-md px-1.5 py-0.5 text-[10px] ${
+                  return (
+                    <button
+                      key={item.value}
+                      type="button"
+                      onClick={() =>
+                        setFilter(
+                          item.value
+                        )
+                      }
+                      className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
                         active
-                          ? 'bg-white/20 text-white'
-                          : 'bg-white text-slate-500'
+                          ? 'bg-emerald-900 text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      {item.count}
-                    </span>
-                  </button>
-                )
-              })}
+                      {item.label}
+
+                      <span
+                        className={`rounded-md px-1.5 py-0.5 text-[10px] ${
+                          active
+                            ? 'bg-white/20 text-white'
+                            : 'bg-white text-slate-500'
+                        }`}
+                      >
+                        {item.count}
+                      </span>
+                    </button>
+                  )
+                }
+              )}
             </div>
           </div>
 
@@ -956,7 +1883,8 @@ export default function Notifications() {
                 Fetching your notifications...
               </p>
             </div>
-          ) : filteredNotifications.length === 0 ? (
+          ) : filteredNotifications.length ===
+            0 ? (
             <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
               <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-50">
                 {search.trim() ? (
@@ -985,13 +1913,15 @@ export default function Notifications() {
                     ? 'You have no unread notifications at the moment.'
                     : filter === 'read'
                       ? 'Notifications you have opened will appear here.'
-                      : 'When your instructors update, review, or sign your clearance, notifications will appear here once notification events are configured.'}
+                      : 'Clearance completion updates will appear here when your clearance records confirm that all required instructors have signed.'}
               </p>
 
               {search.trim() && (
                 <button
                   type="button"
-                  onClick={() => setSearch('')}
+                  onClick={() =>
+                    setSearch('')
+                  }
                   className="mt-5 rounded-xl bg-emerald-900 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-800"
                 >
                   Clear Search
@@ -1000,112 +1930,148 @@ export default function Notifications() {
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {filteredNotifications.map((notification) => {
-                const Icon = getNotificationIcon(
-                  notification.category,
-                  notification.type
-                )
+              {filteredNotifications.map(
+                (notification) => {
+                  const Icon =
+                    getNotificationIcon(
+                      notification.category,
+                      notification.type
+                    )
 
-                const style = getCategoryStyle(
-                  notification.category
-                )
+                  const style =
+                    getCategoryStyle(
+                      notification.category
+                    )
 
-                const isProcessing = processingIds.includes(
-                  notification.id
-                )
+                  const isProcessing =
+                    processingIds.includes(
+                      getNotificationKey(
+                        notification
+                      )
+                    )
 
-                return (
-                  <div
-                    key={notification.id}
-                    className={`group flex items-start gap-4 p-5 transition-colors sm:p-6 ${
-                      notification.read
-                        ? 'bg-white hover:bg-slate-50'
-                        : 'bg-emerald-50/40 hover:bg-emerald-50/70'
-                    }`}
-                  >
+                  const isCompletion =
+                    notification.type ===
+                    'clearance_fully_signed'
+
+                  return (
                     <div
-                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${style.icon}`}
+                      key={getNotificationKey(
+                        notification
+                      )}
+                      className={`group flex items-start gap-4 p-5 transition-colors sm:p-6 ${
+                        notification.read
+                          ? 'bg-white hover:bg-slate-50'
+                          : 'bg-emerald-50/40 hover:bg-emerald-50/70'
+                      }`}
                     >
-                      <Icon size={22} />
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3
-                          className={`text-sm ${
-                            notification.read
-                              ? 'font-semibold text-slate-800'
-                              : 'font-bold text-slate-950'
-                          }`}
-                        >
-                          {notification.title}
-                        </h3>
-
-                        {!notification.read && (
-                          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                        )}
-
-                        <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${style.badge}`}
-                        >
-                          {style.label}
-                        </span>
+                      <div
+                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${style.icon}`}
+                      >
+                        <Icon size={22} />
                       </div>
 
-                      <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-slate-500">
-                        {notification.message}
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3
+                            className={`text-sm ${
+                              notification.read
+                                ? 'font-semibold text-slate-800'
+                                : 'font-bold text-slate-950'
+                            }`}
+                          >
+                            {
+                              notification.title
+                            }
+                          </h3>
 
-                      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                        <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-                          <Clock3 className="h-3.5 w-3.5" />
-                          {formatRelativeTime(
-                            notification.createdAt
+                          {!notification.read && (
+                            <span
+                              className="inline-block h-2 w-2 shrink-0 rounded-full bg-red-500"
+                              aria-label="Unread"
+                            />
                           )}
-                        </span>
 
-                        <span className="text-xs text-slate-400">
-                          From: {notification.senderName}
-                        </span>
-                      </div>
+                          <span
+                            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${style.badge}`}
+                          >
+                            {style.label}
+                          </span>
 
-                      <div className="mt-3 flex flex-wrap items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleOpenNotification(notification)
+                          {isCompletion && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Fully Signed
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-slate-500">
+                          {
+                            notification.message
                           }
-                          className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 transition hover:text-emerald-600"
-                        >
-                          View Details
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
+                        </p>
 
-                        {!notification.read && (
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                          <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                            <Clock3 className="h-3.5 w-3.5" />
+                            {formatRelativeTime(
+                              notification.createdAt
+                            )}
+                          </span>
+
+                          <span className="text-xs text-slate-400">
+                            From:{' '}
+                            {
+                              notification.senderName
+                            }
+                          </span>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-3">
                           <button
                             type="button"
-                            disabled={isProcessing}
-                            onClick={() => {
-                              void markAsRead(
+                            onClick={() =>
+                              handleOpenNotification(
                                 notification
-                              ).catch(() => {})
-                            }}
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 transition hover:text-emerald-700 disabled:opacity-50"
+                              )
+                            }
+                            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 transition hover:text-emerald-600"
                           >
-                            {isProcessing ? (
-                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Check className="h-3.5 w-3.5" />
-                            )}
-
-                            Mark as Read
+                            View Details
+                            <ChevronRight className="h-3.5 w-3.5" />
                           </button>
-                        )}
+
+                          {!notification.read && (
+                            <button
+                              type="button"
+                              disabled={
+                                isProcessing
+                              }
+                              onClick={() => {
+                                void markAsRead(
+                                  notification
+                                ).catch(
+                                  () => {}
+                                )
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 transition hover:text-emerald-700 disabled:opacity-50"
+                            >
+                              {isProcessing ? (
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Check className="h-3.5 w-3.5" />
+                              )}
+
+                              Mark as Read
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                }
+              )}
             </div>
           )}
         </div>
@@ -1124,9 +2090,11 @@ export default function Notifications() {
               </h3>
 
               <p className="mt-1 max-w-xl text-xs leading-relaxed text-emerald-800">
-                Notifications help you keep track of important
-                clearance updates. You can also review
-                detailed instructor actions in your activity history.
+                Notifications help you keep track
+                of important clearance updates.
+                You can also review detailed
+                instructor actions in your
+                activity history.
               </p>
             </div>
           </div>
@@ -1147,7 +2115,10 @@ export default function Notifications() {
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
               handleCloseDetails()
             }
           }}
@@ -1169,7 +2140,9 @@ export default function Notifications() {
                     id="notification-detail-title"
                     className="text-lg font-bold text-slate-900"
                   >
-                    {selectedNotification.title}
+                    {
+                      selectedNotification.title
+                    }
                   </h2>
 
                   <p className="mt-1 text-xs text-slate-500">
@@ -1182,7 +2155,9 @@ export default function Notifications() {
 
               <button
                 type="button"
-                onClick={handleCloseDetails}
+                onClick={
+                  handleCloseDetails
+                }
                 aria-label="Close notification details"
                 className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
               >
@@ -1207,19 +2182,26 @@ export default function Notifications() {
                 </span>
 
                 <span className="text-xs text-slate-400">
-                  From: {selectedNotification.senderName}
+                  From:{' '}
+                  {
+                    selectedNotification.senderName
+                  }
                 </span>
               </div>
 
               <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">
-                {selectedNotification.message}
+                {
+                  selectedNotification.message
+                }
               </p>
             </div>
 
             <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 bg-slate-50 p-4 sm:px-6">
               <button
                 type="button"
-                onClick={handleCloseDetails}
+                onClick={
+                  handleCloseDetails
+                }
                 className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
               >
                 Close
@@ -1227,8 +2209,12 @@ export default function Notifications() {
 
               {selectedNotification.link && (
                 <Link
-                  href={selectedNotification.link}
-                  onClick={handleCloseDetails}
+                  href={
+                    selectedNotification.link
+                  }
+                  onClick={
+                    handleCloseDetails
+                  }
                   className="inline-flex items-center gap-2 rounded-xl bg-emerald-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
                 >
                   View Related Page
