@@ -24,6 +24,7 @@ import {
   Megaphone,
   MessageSquare,
   ChevronRight,
+  ClipboardList,
 } from 'lucide-react'
 
 import {
@@ -129,6 +130,11 @@ const navigationSections: NavigationSection[] = [
   {
     title: 'ACCOUNT',
     links: [
+      {
+        name: 'Instructor Application',
+        href: '/students/application',
+        icon: ClipboardList,
+      },
       {
         name: 'Profile',
         href: '/students/profile',
@@ -1030,6 +1036,7 @@ export default function StudentSidebar() {
           {/* Logout button */}
 
           <button
+            suppressHydrationWarning
             type="button"
             onClick={handleOpenLogoutModal}
             className="group flex min-h-[44px] w-full shrink-0 items-center gap-3 rounded-xl border border-transparent px-3.5 py-3 text-sm font-medium text-emerald-100/80 transition-all duration-200 hover:border-red-400/20 hover:bg-red-500/10 hover:text-white"
